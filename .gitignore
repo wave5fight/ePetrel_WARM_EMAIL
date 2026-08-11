@@ -24,6 +24,7 @@ check_email/
 python_env/
 .venv/
 epetrelcodemailenv/
+mutualwarmenv/
 venv/
 env/
 dist/
