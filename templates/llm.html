@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% macro provider_icon(provider) -%}
+  {% if provider == "anthropic" %}forum{% else %}hub{% endif %}
+{%- endmacro %}
+
+{% macro render_llm_table(rows, active_provider) -%}
+  <div class="llm-table-card">
+    <div class="table-wrap llm-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Status</th>
+            <th>Model</th>
+            <th>Base URL</th>
+            <th>Last Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            {% set row_provider = row.provider.replace("warm_", "") if row.provider else "" %}
+            <tr class="{% if row_provider == active_provider %}llm-active-row{% endif %}">
+              <td>
+                <span class="llm-provider-cell">
+                  <span class="material-symbols-outlined {% if row_provider == 'openai' %}filled{% endif %}">
+                    {{ provider_icon(row_provider) }}
+                  </span>
+                  <strong>{{ row.display_name }}</strong>
+                </span>
+              </td>
+              <td>
+                <span class="llm-status-pill {% if row.status|lower == 'active' %}llm-status-active{% endif %}">
+                  {{ row.status }}
+                </span>
+              </td>
+              <td>{{ row.model }}</td>
+              <td class="llm-url-cell">{{ row.base_url }}</td>
+              <td>{{ row.updated_at }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro render_toolkit(selected_base, settings, default_model, toolkit_text, is_warm=False) -%}
+  <aside class="llm-toolkit-panel">
+    <div class="llm-toolkit-card">
+      <div class="llm-toolkit-head">
+        <span class="material-symbols-outlined text-primary">build</span>
+        <h3>{{ t("toolkit") }}</h3>
+      </div>
+
+      <div class="llm-toolkit-section">
+        <h4>Protocol Support</h4>
+        <div class="llm-info-box llm-info-blue">
+          <p>{{ toolkit_text }}</p>
+        </div>
+      </div>
+
+      <div class="llm-toolkit-section">
+        <h4>Security Notice</h4>
+        <div class="llm-info-box">
+          <p>{{ t("security_note") }}</p>
+        </div>
+      </div>
+
+      <div class="llm-toolkit-section">
+        <h4>Model Selection</h4>
+        <ul class="llm-tip-list">
+          <li>
+            <span class="material-symbols-outlined">verified</span>
+            <p><strong>{{ provider_label(selected_base) }}</strong> is the active protocol for this configuration.</p>
+          </li>
+          <li>
+            <span class="material-symbols-outlined">bolt</span>
+            <p><strong>{{ settings.model or default_model }}</strong> will be used when this provider is selected.</p>
+          </li>
+          <li>
+            <span class="material-symbols-outlined">warning</span>
+            <p>{% if is_warm %}Keep warm conversations short and natural.{% else %}Preserve merge variables and Spintax instructions.{% endif %}</p>
+          </li>
+        </ul>
+      </div>
+
+      <div class="llm-toolkit-state">
+        <div class="toolkit-row"><span>Protocol</span><strong>{{ provider_label(selected_base) }}</strong></div>
+        <div class="toolkit-row"><span>Model</span><strong>{{ settings.model or default_model }}</strong></div>
+        <div class="toolkit-row"><span>Secret state</span><strong>{% if settings.has_api_key %}Saved{% else %}Missing{% endif %}</strong></div>
+      </div>
+    </div>
+
+    <div class="llm-health-card">
+      <h4>System Health</h4>
+      <div>
+        <span></span>
+        <p>{% if settings.has_api_key %}API key saved for this provider{% else %}Waiting for provider API key{% endif %}</p>
+      </div>
+    </div>
+  </aside>
+{%- endmacro %}
+
+{% macro render_config_card(scope, title_text, caption_text, selected_base, settings, default_base_url, default_model, default_prompt, save_text, missing_key=False, selected_other="openai") -%}
+  <section class="llm-config-card">
+    <div class="llm-card-accent"></div>
+    <div class="llm-config-head">
+      <span class="material-symbols-outlined text-primary">settings_suggest</span>
+      <div>
+        <h3>{{ title_text }}: <span>{{ provider_label(selected_base) }}</span></h3>
+        <p>{{ caption_text }}</p>
+      </div>
+    </div>
+
+    <div class="llm-provider-switch">
+      {% if scope == "warm" %}
+        <a class="protocol-card {% if selected_base == 'openai' %}protocol-card-active{% endif %}" href="/llm?provider={{ selected_other }}&warm_provider=openai">
+          <span class="material-symbols-outlined">hub</span>
+          <strong>OpenAI / Compatible</strong>
+        </a>
+        <a class="protocol-card {% if selected_base == 'anthropic' %}protocol-card-active{% endif %}" href="/llm?provider={{ selected_other }}&warm_provider=anthropic">
+          <span class="material-symbols-outlined">forum</span>
+          <strong>Anthropic Claude</strong>
+        </a>
+      {% else %}
+        <a class="protocol-card {% if selected_base == 'openai' %}protocol-card-active{% endif %}" href="/llm?provider=openai&warm_provider={{ selected_other }}">
+          <span class="material-symbols-outlined">hub</span>
+          <strong>OpenAI / Compatible</strong>
+        </a>
+        <a class="protocol-card {% if selected_base == 'anthropic' %}protocol-card-active{% endif %}" href="/llm?provider=anthropic&warm_provider={{ selected_other }}">
+          <span class="material-symbols-outlined">forum</span>
+          <strong>Anthropic Claude</strong>
+        </a>
+      {% endif %}
+    </div>
+
+    <form
+      class="llm-config-form"
+      method="post"
+      action="/llm"
+      data-progress-title="{{ t('progress_llm_save_title') }}"
+      data-progress-text="{{ t('progress_llm_save_text') }}"
+    >
+      <input type="hidden" name="scope" value="{{ scope }}">
+      {% if scope == "warm" %}
+        <input type="hidden" name="provider" value="{{ selected_base }}">
+        <input type="hidden" name="cold_provider" value="{{ selected_other }}">
+      {% else %}
+        <input type="hidden" name="provider" value="{{ selected_base }}">
+        <input type="hidden" name="warm_provider" value="{{ selected_other }}">
+      {% endif %}
+
+      <div class="llm-field-grid">
+        <label class="llm-field">
+          {{ t("api_key") }}
+          <span class="llm-secret-field">
+            <input name="api_key" type="password" autocomplete="off" placeholder="Leave blank to keep saved key">
+            <button type="button" class="llm-icon-button" data-secret-toggle aria-label="Toggle API key visibility">
+              <span class="material-symbols-outlined">visibility</span>
+            </button>
+          </span>
+        </label>
+        <label class="llm-field">
+          {{ t("base_url") }}
+          <input name="base_url" value="{{ settings.base_url or default_base_url }}">
+        </label>
+        <label class="llm-field llm-field-wide">
+          {{ t("model") }}
+          <input name="model" value="{{ settings.model or default_model }}">
+        </label>
+      </div>
+
+      <label class="llm-field llm-prompt-field">
+        {{ t("system_prompt") }}
+        <span class="llm-prompt-shell">
+          <textarea name="system_prompt" rows="{% if scope == 'warm' %}11{% else %}13{% endif %}" class="llm-prompt-editor">{{ settings.system_prompt or default_prompt }}</textarea>
+          <span class="llm-prompt-actions">
+            <button type="button" class="llm-prompt-button" data-copy-prompt aria-label="Copy system prompt">
+              <span class="material-symbols-outlined">content_copy</span>
+            </button>
+            <button type="button" class="llm-prompt-button" data-expand-prompt aria-label="Expand system prompt">
+              <span class="material-symbols-outlined">fullscreen</span>
+            </button>
+          </span>
+        </span>
+      </label>
+
+      <p class="llm-prompt-help">
+        {% if scope == "warm" %}Use this prompt for short, low-cost warm mailbox conversations only. Keep it separate from cold-email copy settings.{% else %}{{ t("system_prompt_help") }}{% endif %}
+      </p>
+
+      {% if missing_key %}
+        <div class="alert alert-warning">{{ t("llm_missing_key") }}</div>
+      {% endif %}
+
+      <div class="llm-config-footer">
+        <span class="llm-ready-note">
+          <span class="material-symbols-outlined">check_circle</span>
+          Settings validated and ready to save.
+        </span>
+        <button class="primary-button llm-save-button" type="submit">
+          <span class="material-symbols-outlined">save</span>
+          {{ save_text }}
+        </button>
+      </div>
+    </form>
+  </section>
+{%- endmacro %}
+
+{% block content %}
+<div class="llm-page-stack">
+  <div class="llm-layout-grid">
+    <div class="llm-main-column">
+      {{ render_llm_table(settings, selected_provider) }}
+      {{ render_config_card("cold", t("current_llm"), t("cold_llm_caption"), selected_provider, provider_settings, default_base_url, default_model, default_system_prompt, t("save_llm"), not provider_settings.has_api_key, selected_warm_base) }}
+    </div>
+    {{ render_toolkit(selected_provider, provider_settings, default_model, t(toolkit_key), False) }}
+  </div>
+
+  <div class="llm-layout-grid">
+    <div class="llm-main-column">
+      {{ render_llm_table(warm_settings, selected_warm_base) }}
+      {{ render_config_card("warm", t("warm_current_llm"), t("warm_llm_caption"), selected_warm_base, warm_provider_settings, warm_default_base_url, warm_default_model, warm_default_system_prompt, t("save_warm_llm"), not warm_provider_settings.has_api_key, selected_provider) }}
+    </div>
+    {{ render_toolkit(selected_warm_base, warm_provider_settings, warm_default_model, t(warm_toolkit_key), True) }}
+  </div>
+</div>
+
+<script>
+  (function () {
+    document.querySelectorAll("[data-secret-toggle]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var input = button.parentElement.querySelector("input");
+        var icon = button.querySelector(".material-symbols-outlined");
+        if (!input || !icon) return;
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        icon.textContent = show ? "visibility_off" : "visibility";
+      });
+    });
+
+    document.querySelectorAll("[data-copy-prompt]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var textarea = button.closest(".llm-prompt-shell").querySelector("textarea");
+        if (!textarea || !navigator.clipboard) return;
+        navigator.clipboard.writeText(textarea.value).then(function () {
+          button.classList.add("llm-prompt-button-done");
+          window.setTimeout(function () {
+            button.classList.remove("llm-prompt-button-done");
+          }, 900);
+        });
+      });
+    });
+
+    document.querySelectorAll("[data-expand-prompt]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var shell = button.closest(".llm-prompt-shell");
+        var icon = button.querySelector(".material-symbols-outlined");
+        if (!shell || !icon) return;
+        shell.classList.toggle("llm-prompt-expanded");
+        icon.textContent = shell.classList.contains("llm-prompt-expanded") ? "fullscreen_exit" : "fullscreen";
+      });
+    });
+  })();
+</script>
+{% endblock %}

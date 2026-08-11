@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="crm-workspace">
+  <section class="crm-metrics">
+    <div class="metric-card">
+      <span>Total</span>
+      <strong>{{ crm_summary.total }}</strong>
+    </div>
+    <div class="metric-card">
+      <span>Today Follow-up</span>
+      <strong>{{ crm_summary.today_due }}</strong>
+    </div>
+    <div class="metric-card">
+      <span>Review Replies</span>
+      <strong>{{ crm_summary.by_status.get("replied_pending_review", 0) }}</strong>
+    </div>
+    <div class="metric-card">
+      <span>Interested</span>
+      <strong>{{ crm_summary.by_status.get("interested", 0) }}</strong>
+    </div>
+    <div class="metric-card">
+      <span>Abandoned</span>
+      <strong>{{ crm_summary.by_status.get("abandoned", 0) }}</strong>
+    </div>
+    <div class="metric-card">
+      <span>External Queue</span>
+      <strong>{{ crm_summary.external_pending }}</strong>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h3>Contacts</h3>
+        <p>{{ crm_page.total }} contacts match the current filters.</p>
+      </div>
+      <a class="secondary-button" href="/crm/export{{ request.url.query and ('?' ~ request.url.query) or '' }}">
+        <span class="material-symbols-outlined">download</span>Export
+      </a>
+    </div>
+    <form class="crm-filter-grid mb-4" method="post" action="/crm/import" enctype="multipart/form-data" data-progress-title="Importing CRM contacts" data-progress-text="Reading the file and updating contact records.">
+      <label>Import CSV / Excel
+        <input name="contacts_file" type="file" accept=".csv,.xlsx" required>
+      </label>
+      <div class="lead-format-note">Supported: Email, Name, Company, Position, Company_Bio, Website, Phone, WhatsApp, Instagram, LinkedIn, Country, Tags, Notes, Campaign, Source, plus custom columns.</div>
+      <button class="secondary-button" type="submit"><span class="material-symbols-outlined">upload_file</span>Import</button>
+    </form>
+    <form class="crm-filter-grid" method="get" action="/crm">
+      <label>Status
+        <select name="status">
+          <option value="">All</option>
+          {% for status in crm_statuses %}
+            <option value="{{ status }}" {% if crm_filters.status == status %}selected{% endif %}>{{ status }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Search
+        <input name="q" value="{{ crm_filters.q }}" placeholder="Email, company, notes">
+      </label>
+      <label>Tags
+        <input name="tags" value="{{ crm_filters.tags|join(', ') }}" placeholder="SaaS, EU">
+      </label>
+      <label>Due
+        <select name="due">
+          <option value="">Any</option>
+          <option value="today" {% if crm_filters.due == "today" %}selected{% endif %}>Today</option>
+          <option value="week" {% if crm_filters.due == "week" %}selected{% endif %}>This week</option>
+          <option value="overdue" {% if crm_filters.due == "overdue" %}selected{% endif %}>Overdue</option>
+        </select>
+      </label>
+      <label>External
+        <select name="external_touch_status">
+          <option value="">Any</option>
+          {% for item in ["none", "pending", "in_progress", "done", "paused"] %}
+            <option value="{{ item }}" {% if crm_filters.external_touch_status == item %}selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="primary-button" type="submit"><span class="material-symbols-outlined">filter_alt</span>Filter</button>
+    </form>
+
+    <form method="post" action="/crm/bulk">
+      <input type="hidden" name="next_url" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      <div class="crm-bulk-bar">
+        <select name="bulk_action">
+          <option value="status">Change status</option>
+          <option value="note">Add note</option>
+          <option value="next_followup">Set next follow-up</option>
+          <option value="tag_add">Add tags</option>
+          <option value="tag_remove">Remove tags</option>
+          <option value="external_add">Add to external queue</option>
+          <option value="external_remove">Remove from external queue</option>
+          <option value="export">Export selected</option>
+        </select>
+        <select name="bulk_status">
+          {% for status in crm_statuses %}
+            <option value="{{ status }}">{{ status }}</option>
+          {% endfor %}
+        </select>
+        <input name="bulk_tags" placeholder="tags">
+        <input name="bulk_next_followup_at" type="datetime-local">
+        <select name="bulk_external_channel">
+          <option value="">Any channel</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="instagram">Instagram</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
+        <input name="bulk_note" placeholder="note">
+        <button class="secondary-button" type="submit"><span class="material-symbols-outlined">done_all</span>Apply</button>
+      </div>
+
+      {% if contacts %}
+        <div class="table-wrap">
+          <table class="crm-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" data-crm-select-all></th>
+                <th>Contact</th>
+                <th>Company</th>
+                <th>Status</th>
+                <th>Tags</th>
+                <th>Next</th>
+                <th>RM</th>
+                <th>External</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in contacts %}
+                <tr>
+                  <td><input type="checkbox" name="emails" value="{{ row.email }}"></td>
+                  <td>
+                    <a class="crm-contact-link" href="/crm/contacts/{{ row.email }}">{{ row.name or row.email }}</a>
+                    <span>{{ row.email }}</span>
+                  </td>
+                  <td>
+                    <strong>{{ row.company }}</strong>
+                    <span>{{ row.position }}</span>
+                  </td>
+                  <td><span class="badge crm-status-{{ row.status }}">{{ row.status }}</span></td>
+                  <td>
+                    {% for tag in row.tags %}
+                      <span class="crm-tag">{{ tag }}</span>
+                    {% endfor %}
+                  </td>
+                  <td>{{ row.next_followup_at or "" }}</td>
+                  <td>{{ row.remarketing_attempts }}/{{ row.max_remarketing_attempts }}</td>
+                  <td>{{ row.external_touch_status }}{% if row.external_touch_channel %} / {{ row.external_touch_channel }}{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="lead-pager">
+          <a class="secondary-button report-pager-button {% if not crm_page.prev_url %}is-disabled{% endif %}" href="{{ crm_page.prev_url }}"><span class="material-symbols-outlined">chevron_left</span></a>
+          <span>Page {{ crm_page.page }} / {{ crm_page.pages }}</span>
+          <a class="secondary-button report-pager-button {% if not crm_page.next_url %}is-disabled{% endif %}" href="{{ crm_page.next_url }}"><span class="material-symbols-outlined">chevron_right</span></a>
+        </div>
+      {% else %}
+        <div class="empty min-h-80">No CRM contacts yet. Upload a lead file in Dispatch to populate this workspace.</div>
+      {% endif %}
+    </form>
+  </section>
+
+  <div class="grid gap-6 xl:grid-cols-12">
+    <section class="panel xl:col-span-5">
+      <div class="panel-head">
+        <div>
+          <h3>Follow-up Tasks</h3>
+          <p>Open tasks due today or earlier.</p>
+        </div>
+        <span class="material-symbols-outlined text-primary">task_alt</span>
+      </div>
+      {% if crm_tasks_today %}
+        <div class="crm-task-list">
+          {% for task in crm_tasks_today %}
+            <div class="crm-task-row">
+              <a href="/crm/contacts/{{ task.contact_email }}">{{ task.contact_email }}</a>
+              <strong>{{ task.title }}</strong>
+              <span>{{ task.task_type }}{% if task.due_at %} due {{ task.due_at }}{% endif %}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty min-h-40">No due tasks.</div>
+      {% endif %}
+    </section>
+
+    <section class="panel xl:col-span-7">
+      <div class="panel-head">
+        <div>
+          <h3>Remarketing Funnel</h3>
+          <p>Initial send, remarketing steps, replies, and abandonment.</p>
+        </div>
+        <form method="post" action="/crm/remarketing/send" data-progress-title="Sending remarketing" data-progress-text="The CRM queue is sending due contacts.">
+          <input name="limit" type="hidden" value="25">
+          <button class="primary-button" type="submit"><span class="material-symbols-outlined">send</span>Send due {{ remarketing_candidates }}</button>
+        </form>
+      </div>
+      <div class="crm-funnel">
+        {% for label, value in crm_funnel.stages.items() %}
+          <div>
+            <span>{{ label.replace("_", " ") }}</span>
+            <strong>{{ value }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="table-wrap mt-4">
+        <table>
+          <thead><tr><th>Step</th><th>Template</th><th>Variant</th><th>Sends</th><th>Contacts</th></tr></thead>
+          <tbody>
+            {% for row in crm_funnel.by_template %}
+              <tr><td>{{ row.step }}</td><td>{{ row.template_name or "Initial" }}</td><td>{{ row.variant_version }}</td><td>{{ row.sent_count }}</td><td>{{ row.contact_count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section id="remarketing" class="panel">
+    <div class="panel-head">
+      <div>
+        <h3>Remarketing Templates</h3>
+        <p>Separate follow-up copy for steps 1-4.</p>
+      </div>
+      <form class="crm-settings-form" method="post" action="/crm/settings">
+        <label>Max attempts
+          <input name="max_remarketing_attempts" type="number" min="0" max="4" value="{{ crm_max_remarketing_attempts }}">
+        </label>
+        <input name="obsidian_export_path" type="hidden" value="{{ obsidian_export_path }}">
+        <button class="secondary-button" type="submit"><span class="material-symbols-outlined">save</span>Save</button>
+      </form>
+    </div>
+    <div class="crm-template-grid">
+      {% for template in remarketing_templates %}
+        <form class="crm-template-card" method="post" action="/crm/remarketing/templates/save">
+          <input type="hidden" name="step_number" value="{{ template.step_number }}">
+          <strong>Step {{ template.step_number }}</strong>
+          <input name="name" value="{{ template.name }}" placeholder="Template name">
+          <input name="subject" value="{{ template.subject }}" placeholder="Subject">
+          <textarea name="body" rows="5" placeholder="Body">{{ template.body }}</textarea>
+          <textarea name="unsubscribe_copy" rows="2" placeholder="Unsubscribe copy">{{ template.unsubscribe_copy }}</textarea>
+          <textarea name="signature" rows="2" placeholder="Signature">{{ template.signature }}</textarea>
+          <div class="crm-inline-controls">
+            <label>Cooldown <input name="cooldown_days" type="number" min="0" max="90" value="{{ template.cooldown_days }}"></label>
+            <select name="status">
+              <option value="active" {% if template.status == "active" %}selected{% endif %}>active</option>
+              <option value="paused" {% if template.status == "paused" %}selected{% endif %}>paused</option>
+            </select>
+            <button class="secondary-button" type="submit"><span class="material-symbols-outlined">save</span>Save</button>
+          </div>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section id="obsidian" class="panel">
+    <div class="panel-head">
+      <div>
+        <h3>Obsidian Graph Export</h3>
+        <p>Markdown notes with frontmatter and wikilinks for graph view.</p>
+      </div>
+      <span class="material-symbols-outlined text-primary">hub</span>
+    </div>
+    <form class="crm-filter-grid" method="post" action="/crm/obsidian/export">
+      <label>Export folder
+        <input name="obsidian_export_path" value="{{ obsidian_export_path }}">
+      </label>
+      <button class="primary-button" type="submit"><span class="material-symbols-outlined">download</span>Export notes</button>
+    </form>
+  </section>
+</div>
+
+<script>
+  (function () {
+    const selectAll = document.querySelector("[data-crm-select-all]");
+    if (!selectAll) return;
+    selectAll.addEventListener("change", function () {
+      document.querySelectorAll('input[name="emails"]').forEach(function (box) {
+        box.checked = selectAll.checked;
+      });
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid gap-6 xl:grid-cols-12">
+  <section class="panel xl:col-span-4">
+    <div class="panel-head">
+      <div>
+        <h3>{{ t("sync_inbox") }}</h3>
+        <p>{{ t("inbox_caption") }}</p>
+      </div>
+      <span class="material-symbols-outlined text-primary">sync</span>
+    </div>
+    <form
+      class="grid gap-4"
+      method="post"
+      action="/inbox/sync"
+      data-progress-title="{{ t('progress_inbox_sync_title') }}"
+      data-progress-text="{{ t('progress_inbox_sync_text') }}"
+    >
+      <label>{{ t("fetch_limit") }}<input name="limit_per_sender" type="number" min="5" max="100" value="25"></label>
+      <button class="primary-button" type="submit">{{ t("sync_inbox") }}</button>
+    </form>
+    <div class="mt-6 rounded-lg bg-primary p-6 text-white">
+      <div class="flex items-start justify-between">
+        <span class="material-symbols-outlined text-4xl opacity-60">insights</span>
+        <span class="rounded bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-widest">AI Status</span>
+      </div>
+      <p class="mt-6 text-4xl font-bold">{{ inbox|length }}</p>
+      <p class="mt-1 text-sm opacity-80">classified replies</p>
+    </div>
+  </section>
+
+  <section class="panel xl:col-span-8">
+    <div class="panel-head">
+      <h3>{{ t("inbox_title") }}</h3>
+      <span class="material-symbols-outlined text-primary">all_inbox</span>
+    </div>
+    {% if inbox %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Received</th><th>Sender</th><th>Receiver</th><th>Subject</th><th>Sentiment</th></tr></thead>
+          <tbody>
+            {% for row in inbox %}
+              <tr><td>{{ row.received_at }}</td><td>{{ row.sender }}</td><td>{{ row.receiver }}</td><td>{{ row.subject }}</td><td><span class="badge">{{ row.sentiment }}</span></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty min-h-80">{{ t("empty_inbox") }}</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

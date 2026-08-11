@@ -1,0 +1,779 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="warm-page-stack">
+<div class="warm-cluster-grid">
+  <section class="panel warm-auth-panel">
+    <div class="panel-head">
+      <div>
+        <h3>ePetrel Authorization</h3>
+        <p class="text-sm text-on-surface-variant">Authorize this local client before syncing Private Trust Cluster state.</p>
+      </div>
+      <span class="material-symbols-outlined text-primary">verified_user</span>
+    </div>
+    {% if warm_auth and warm_auth.access_token %}
+      <div class="alert alert-success">Logged in to ePetrel{% if warm_auth.user and warm_auth.user.email %} as {{ warm_auth.user.email }}{% elif warm_auth.email %} as {{ warm_auth.email }}{% endif %}. This client can register clusters, approve members, and receive scheduler policy.</div>
+      <form method="post" action="/warm/auth/clear" onsubmit="return confirm('Clear local ePetrel Warm authorization on this client? Remote ownership bindings will not be deleted.')">
+        <button class="secondary-button audit-clear-button" type="submit">
+          <span class="material-symbols-outlined">logout</span>Clear Authorization
+        </button>
+      </form>
+    {% else %}
+      <div class="flex flex-wrap gap-3">
+        <form id="warm-auth-form" method="post" action="/warm/auth/start" target="_blank"><button id="warm-auth-button" class="primary-button" type="submit">Log in to ePetrel</button></form>
+        <form method="post" action="/warm/auth/check"><button class="secondary-button" type="submit">Check Authorization</button></form>
+        {% if warm_auth_request and warm_auth_request.login_url %}
+          <a class="secondary-button" href="{{ warm_auth_request.login_url }}" target="_blank" rel="noopener">Open Login</a>
+        {% endif %}
+      </div>
+      <div id="warm-auth-progress" class="import-progress mt-4" hidden>
+        <div class="import-progress-row">
+          <span>Waiting for ePetrel login...</span>
+          <span class="import-spinner" aria-hidden="true"></span>
+        </div>
+        <div class="import-progress-track"><span></span></div>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel warm-cluster-panel">
+    <div class="panel-head warm-cluster-head"><h3>Start a Warm Cluster</h3><span class="material-symbols-outlined text-primary">hub</span></div>
+    <form class="warm-cluster-create-form" method="post" action="/warm/clusters" data-warm-progress="Verifying owner mailbox before creating the cluster...">
+      <label>Cluster Name
+        <input name="name" placeholder="Team warm pool">
+      </label>
+      <label>Owner Email
+        <select name="owner_email" required>
+          <option value="">Choose owner mailbox</option>
+          {% for sender in warm_sender_options %}
+            <option value="{{ sender.email }}" {% if not sender.warm_selectable or sender.warm_status == "pending" %}disabled{% endif %}>{{ sender.email }} · {{ sender.warm_status_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="primary-button" type="submit">Create Cluster</button>
+    </form>
+
+    <div class="warm-cluster-divider"><span>Join with Invite</span></div>
+
+    <div class="alert alert-warning warm-same-ip-note">Same public-IP warm can be legitimate for internal team mailboxes, but it may weaken deliverability signals. ePetrel checks IP risk during task scheduling rather than on this form.</div>
+    <form class="warm-cluster-join-form" method="post" action="/warm/clusters/join" data-warm-progress="Verifying member mailbox before joining the cluster...">
+      <label>Cluster ID
+        <input name="cluster_id" placeholder="wcl_...">
+      </label>
+      <label>Cluster Secret
+        <input name="cluster_secret" type="password" autocomplete="off">
+      </label>
+      <div class="warm-sender-picker warm-full-field">
+        {% for sender in warm_sender_options %}
+          <label class="warm-sender-option warm-sender-option-{{ sender.warm_status }}">
+            <input name="member_emails" type="checkbox" value="{{ sender.email }}" {% if not sender.warm_selectable %}disabled{% endif %}>
+            <span class="warm-sender-main">
+              <strong>{{ sender.email }}</strong>
+              <em>{{ sender.auth_method or "smtp" }}</em>
+            </span>
+            <span class="warm-sender-status">{{ sender.warm_status_label }}</span>
+            <small>{{ sender.warm_status_message }}</small>
+          </label>
+        {% endfor %}
+      </div>
+      <button class="secondary-button warm-full-field" type="submit">Request Join for Selected</button>
+    </form>
+  </section>
+
+  <div class="warm-cluster-side">
+    <section class="panel warm-state-panel">
+      <div class="panel-head warm-side-head">
+        <h3>Cluster State</h3>
+        <form method="post" action="/warm/clusters/clear-local" onsubmit="return confirm('Clear this Warm cluster on this client? Owners dissolve the remote cluster; members leave the cluster. Local state will be cleared.')">
+          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id if selected_cluster else '' }}">
+          <button class="secondary-button audit-clear-button" type="submit">
+            <span class="material-symbols-outlined">delete_sweep</span>Clear
+          </button>
+        </form>
+        <form method="post" action="/warm/clusters/clear-local" onsubmit="return confirm('Clear only local Warm cluster state on this client? Remote ePetrel clusters will not be changed.')">
+          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id if selected_cluster else '' }}">
+          <input name="scope" type="hidden" value="local">
+          <button class="secondary-button audit-clear-button" type="submit">
+            <span class="material-symbols-outlined">folder_delete</span>Local Only
+          </button>
+        </form>
+      </div>
+      {% if warm_clusters %}
+        <div class="warm-state-list">
+          {% for cluster in warm_clusters %}
+            <a class="warm-state-card {% if selected_cluster.cluster_id == cluster.cluster_id %}warm-state-card-active{% endif %}" href="/warm?cluster_id={{ cluster.cluster_id }}">
+              <div class="warm-state-card-top">
+                <span class="warm-state-name">{{ cluster.name or cluster.cluster_id }}</span>
+                <span class="warm-state-badge">{{ cluster.role }} &bull; {{ cluster.status }}</span>
+              </div>
+              <div class="warm-state-details">
+                <span>Cluster ID:</span><strong title="{{ cluster.cluster_id }}">{{ cluster.cluster_id }}</strong>
+                <span>Cluster Secret:</span><strong title="{{ cluster.cluster_secret_masked or 'saved' }}">{{ cluster.cluster_secret_masked or "saved" }}</strong>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">Create a private cluster or request to join one before enabling warm mailboxes.</div>
+      {% endif %}
+    </section>
+
+    {% if selected_cluster %}
+      {% if selected_cluster.cluster_secret %}
+        <section class="panel warm-owner-share-panel">
+          <div class="panel-head warm-side-head">
+            <h3>{% if selected_cluster.role == "owner" %}Owner Share{% else %}Saved Cluster Access{% endif %}</h3>
+            <button
+              class="secondary-button warm-copy-button"
+              type="button"
+              title="Copy Cluster ID and Secret"
+              data-copy-text="Cluster ID: {{ selected_cluster.cluster_id }}
+Cluster Secret: {{ selected_cluster.cluster_secret }}"
+            >
+              <span class="material-symbols-outlined">content_copy</span>
+              Copy All
+            </button>
+          </div>
+          <div class="warm-secret-list">
+            <div class="warm-secret-row">
+              <div>
+                <div class="warm-secret-label">Cluster ID</div>
+                <div class="warm-secret-value">{{ selected_cluster.cluster_id }}</div>
+              </div>
+              <button class="warm-secret-icon-button" type="button" title="Copy Cluster ID" data-copy-text="{{ selected_cluster.cluster_id }}">
+                <span class="material-symbols-outlined">content_copy</span>
+              </button>
+            </div>
+            <div class="warm-secret-row">
+              <div>
+                <div class="warm-secret-label">Cluster Secret</div>
+                <div class="warm-secret-value warm-secret-value-masked" id="warm-owner-cluster-secret">{{ selected_cluster.cluster_secret }}</div>
+              </div>
+              <div class="warm-secret-actions">
+                <button class="warm-secret-icon-button" type="button" title="Copy Cluster Secret" data-copy-text="{{ selected_cluster.cluster_secret }}">
+                  <span class="material-symbols-outlined">content_copy</span>
+                </button>
+                <button class="warm-secret-icon-button warm-secret-toggle-button" type="button" title="Show or hide Cluster Secret" data-secret-target="warm-owner-cluster-secret">
+                  <span class="material-symbols-outlined">visibility</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          {% if selected_cluster.role != "owner" %}
+            <p class="warm-secret-note">This machine has the Cluster Secret for joining, but it does not have the Owner Key needed to approve members.</p>
+          {% endif %}
+        </section>
+      {% endif %}
+      {% if selected_cluster.role == "owner" %}
+        <form class="warm-sync-form" method="post" action="/warm/clusters/sync" data-warm-progress="Syncing members and local mailbox states...">
+          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+          <button class="warm-sync-button" type="submit"><span class="material-symbols-outlined">sync</span>Sync Members</button>
+          <p class="warm-sync-note">Pulls the latest WP cluster members and updates Local Warm Mailboxes to the same status.</p>
+        </form>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="warm-members-dashboard">
+  <section class="panel warm-members-panel">
+    <div class="warm-members-head">
+      <div class="warm-members-title">
+        <span class="material-symbols-outlined" aria-hidden="true">groups</span>
+        <h3>Members</h3>
+      </div>
+      {% if selected_cluster and selected_cluster.role == "owner" %}
+        {% set blacklisted_members = warm_cluster_members | selectattr("status", "equalto", "blacklisted") | list %}
+        {% set pending_members = warm_cluster_members | selectattr("status", "equalto", "pending") | list %}
+        <form id="warm-approve-selected-form" method="post" action="/warm/clusters/members/approve" data-warm-progress="Approving selected warm members...">
+          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+        </form>
+        {% if blacklisted_members %}
+          <form
+            id="warm-clear-blacklisted-form"
+            method="post"
+            action="/warm/clusters/members/clear-blacklisted"
+            data-warm-progress="Clearing blacklisted warm members..."
+            onsubmit="return confirm('Clear blacklisted members from this cluster view?')"
+          >
+            <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+          </form>
+        {% endif %}
+        <div class="warm-members-actions">
+          <form class="warm-approve-email-form" method="post" action="/warm/clusters/members/approve" data-warm-progress="Approving warm member...">
+            <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+            <input name="member_email" type="email" placeholder="member@example.com" autocomplete="off">
+            <button class="warm-invite-button" type="submit" title="Approve member by email">
+              <span class="material-symbols-outlined" aria-hidden="true">person_check</span>
+              Approve Email
+            </button>
+          </form>
+          {% if blacklisted_members %}
+            <button class="warm-clear-button" type="submit" form="warm-clear-blacklisted-form">
+              <span class="material-symbols-outlined" aria-hidden="true">delete_sweep</span>
+              Clear Blacklisted
+            </button>
+          {% endif %}
+          {% if pending_members %}
+            <button class="warm-invite-button" type="submit" form="warm-approve-selected-form">
+              <span class="material-symbols-outlined" aria-hidden="true">done_all</span>
+              Approve Selected
+            </button>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+    <div class="warm-members-table-region">
+      {% if warm_cluster_members %}
+	        <div class="warm-members-table-wrap">
+	          <table class="warm-members-table">
+	            <thead>
+	              <tr>{% if selected_cluster.role == "owner" and pending_members %}<th>Select</th>{% endif %}<th>Mailbox Address</th><th>Status</th><th>Join Date</th><th>Actions</th></tr>
+	            </thead>
+	            <tbody>
+	              {% for row in warm_cluster_members %}
+	                {% set join_date = row.approved_at or row.created_at or row.last_seen_at or "-" %}
+	                <tr>
+	                  {% if selected_cluster.role == "owner" and pending_members %}
+	                    <td>
+	                      {% if row.status == "pending" %}
+	                        <input class="warm-member-select" form="warm-approve-selected-form" name="member_emails" type="checkbox" value="{{ row.email }}" title="Select member for approval">
+	                      {% else %}
+	                        <span class="warm-member-select-spacer"></span>
+	                      {% endif %}
+	                    </td>
+	                  {% endif %}
+	                  <td>
+	                    <div class="warm-member-address">
+                      <strong>{{ row.email }}</strong>
+                      <span>UID: {{ row.provider or "mailbox" }}-{{ (row.cluster_id or "local")[-6:] }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="warm-member-status warm-member-status-{{ row.status }}">
+                      <span></span>{{ row.status }}
+                    </span>
+                  </td>
+                  <td class="warm-member-date">{{ join_date[:10] if join_date != "-" else "-" }}</td>
+                  <td>
+                    <div class="warm-member-actions">
+                      {% if selected_cluster.role == "owner" and row.status == "pending" %}
+                        <form method="post" action="/warm/clusters/members/approve">
+                          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+                          <input name="member_email" type="hidden" value="{{ row.email }}">
+                          <button class="warm-member-action-button" type="submit" title="Allow member"><span class="material-symbols-outlined">check</span></button>
+                        </form>
+                      {% endif %}
+                      {% if selected_cluster.role == "owner" and row.status != "blacklisted" %}
+                        <form method="post" action="/warm/clusters/members/remove">
+                          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+                          <input name="member_email" type="hidden" value="{{ row.email }}">
+                          <button class="warm-member-action-button warm-member-remove-button" type="submit" title="Remove member"><span class="material-symbols-outlined">person_remove</span></button>
+                        </form>
+                      {% endif %}
+                      {% if selected_cluster.role != "owner" and row.status == "pending" %}
+                        <span class="warm-member-waiting" title="Waiting for the machine with the Owner Key to approve this mailbox">
+                          <span class="material-symbols-outlined">hourglass_top</span>
+                          Waiting for owner
+                        </span>
+                      {% elif selected_cluster.role != "owner" %}
+                        <form method="post" action="/warm/clusters/sync" data-warm-progress="Syncing cluster member status...">
+                          <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id }}">
+                          <button class="warm-member-action-button" type="submit" title="Sync status"><span class="material-symbols-outlined">sync</span></button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="warm-members-empty">
+          <div class="warm-members-empty-icon"><span class="material-symbols-outlined" aria-hidden="true">mail_outline</span></div>
+          <strong>No members recorded</strong>
+          <p>Start by adding your first mailbox to the selected cluster to begin monitoring placement performance.</p>
+        </div>
+      {% endif %}
+    </div>
+    <div class="warm-members-footer">
+      <span>Showing {{ warm_cluster_members|length }} of {{ warm_cluster_members|length }} members</span>
+      <div>
+        <button type="button" disabled><span class="material-symbols-outlined">chevron_left</span></button>
+        <button type="button"><span class="material-symbols-outlined">chevron_right</span></button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="warm-summary-stack">
+    <section class="panel warm-summary-panel">
+      <div class="warm-summary-head">
+        <div>
+          <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
+          <h3>Cluster Summary</h3>
+        </div>
+        <span class="material-symbols-outlined warm-summary-info" aria-hidden="true">info</span>
+      </div>
+      <div class="warm-summary-body">
+        <div class="warm-summary-metric warm-summary-active">
+          <div>
+            <span>Active Mailboxes</span>
+            <strong>{{ warm_summary.active_mailboxes }}</strong>
+          </div>
+          <div class="warm-summary-icon"><span class="material-symbols-outlined" aria-hidden="true">mark_email_read</span></div>
+        </div>
+        <div class="warm-summary-metric">
+          <div class="warm-summary-metric-top">
+            <div>
+              <span>Inbox Placement</span>
+              <strong class="warm-summary-good">{{ "%.2f%%"|format(warm_summary.inbox_rate * 100) }}</strong>
+            </div>
+            <em class="warm-summary-good">{{ warm_summary.inbox_count }} inbox</em>
+          </div>
+          <p class="warm-summary-note">{{ warm_summary.received_count }} scanned placement record(s) in {{ warm_summary.days }} days.</p>
+        </div>
+        <div class="warm-summary-metric">
+          <div class="warm-summary-metric-top">
+            <div>
+              <span>Spam Placement</span>
+              <strong class="warm-summary-bad">{{ "%.2f%%"|format(warm_summary.spam_rate * 100) }}</strong>
+            </div>
+            <em class="warm-summary-bad">{{ warm_summary.spam_count }} spam</em>
+          </div>
+          <p class="warm-summary-note">{{ warm_summary.sent_total }} sent/replied warm message(s) in this cluster.</p>
+        </div>
+      </div>
+      <a class="secondary-button warm-report-button" href="#warm-records">
+        <span class="material-symbols-outlined" aria-hidden="true">table_view</span>
+        View WARM Records
+      </a>
+    </section>
+  </aside>
+</div>
+
+<div class="warm-mailbox-grid">
+	  <section class="panel warm-operation-panel warm-enable-panel">
+	    <span class="warm-operation-accent warm-operation-accent-green" aria-hidden="true"></span>
+	    <div class="warm-operation-head">
+	      <div>
+	        <h3>Add Warm Mailboxes</h3>
+	        <p>Select saved Gmail / Workspace senders. Permission checks and ownership verification run after submission.</p>
+	      </div>
+	      <span class="material-symbols-outlined warm-green-icon" aria-hidden="true">cloud_done</span>
+	    </div>
+	    {% if selected_cluster and selected_cluster.role != "owner" %}
+	      <div class="alert alert-info">This machine does not have the Owner Key. Selected mailboxes will be verified, then submitted as pending join requests.</div>
+	    {% else %}
+	      <div class="alert alert-info">This machine has the Owner Key. Selected mailboxes will be verified, then registered as active automatically.</div>
+	    {% endif %}
+	    <div class="warm-enable-guide">
+	      <span class="material-symbols-outlined" aria-hidden="true">rule</span>
+	      <p>Submitting selected senders starts the real probe flow. The page only shows readiness before that; it does not send probes or replies until you click Add Selected.</p>
+	    </div>
+	    <div class="alert alert-warning warm-same-ip-note">Same public-IP warm is not blocked locally. Remote scheduling prefers different IPs first; if only same-IP receivers are available, the task can continue with a risk marker.</div>
+	    <form class="warm-enable-form" method="post" action="/warm/mailboxes" data-warm-progress="Verifying mailbox ownership before enabling Warm Network...">
+	      <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id if selected_cluster else '' }}">
+	      <div class="warm-sender-picker warm-full-field">
+	        {% for sender in warm_sender_options %}
+	          <label class="warm-sender-option warm-sender-option-{{ sender.warm_status }}">
+	            <input name="sender_emails" type="checkbox" value="{{ sender.email }}" {% if not sender.warm_selectable %}disabled{% endif %}>
+	            <span class="warm-sender-main">
+	              <strong>{{ sender.email }}</strong>
+	              <em>{{ sender.auth_method or "smtp" }}</em>
+	            </span>
+	            <span class="warm-sender-status">{{ sender.warm_status_label }}</span>
+	            <small>{{ sender.warm_status_message }}</small>
+	          </label>
+	        {% endfor %}
+	      </div>
+	      <label class="warm-field">Daily Warm Limit
+	        <input name="daily_limit" type="number" min="1" max="25" value="5">
+	      </label>
+	      <label class="warm-field">Local Timezone
+	        <input name="timezone" value="{{ warm_policy.timezone }}">
+	      </label>
+	      <input name="status" type="hidden" value="active">
+	      <button class="warm-green-button warm-full-field" type="submit" {% if not selected_cluster or not warm_auth or not warm_auth.access_token %}disabled{% endif %}>Add Selected</button>
+	    </form>
+    <div class="warm-local-note">
+      <span class="material-symbols-outlined" aria-hidden="true">lock</span>
+      <p>Cluster Secret and local mailbox secrets stay on this machine. ePetrel only keeps the cluster state needed to coordinate trusted members.</p>
+    </div>
+  </section>
+
+  <section class="panel warm-operation-panel warm-local-mailboxes-panel">
+    <span class="warm-operation-accent" aria-hidden="true"></span>
+    <div class="warm-operation-head">
+      <h3>Local Warm Mailboxes</h3>
+      <form method="post" action="/warm/mailboxes/clear-local" onsubmit="return confirm('Clear all local Warm mailbox records on this client? Remote ePetrel members will not be deleted.')">
+        <button class="secondary-button audit-clear-button" type="submit">
+          <span class="material-symbols-outlined">delete_sweep</span>Clear
+        </button>
+      </form>
+    </div>
+    {% if warm_mailboxes %}
+      <div class="warm-mailbox-table-wrap">
+        <table class="warm-mailbox-table">
+          <thead><tr><th>Email</th><th>Cluster</th><th>Provider</th><th>Status</th><th>Limit</th><th>Actions</th></tr></thead>
+          <tbody>
+            {% for row in warm_mailboxes %}
+              <tr>
+                <td>{{ row.email }}</td>
+                <td>{{ row.cluster_id or "-" }}</td>
+                <td>{{ row.provider }}</td>
+                <td><span class="badge">{{ row.status }}</span></td>
+                <td>{{ row.daily_limit }}/day</td>
+                <td>
+                  <div class="warm-mailbox-actions">
+                    <form method="post" action="/warm/mailboxes/status">
+                      <input name="sender_email" type="hidden" value="{{ row.email }}">
+                      <input name="status" type="hidden" value="{% if row.status == 'active' %}paused{% else %}active{% endif %}">
+                      <button class="warm-mini-button" type="submit">{% if row.status == 'active' %}Pause{% else %}Resume{% endif %}</button>
+                    </form>
+                    <form method="post" action="/warm/mailboxes/reverify" data-warm-progress="Re-verifying mailbox and syncing Warm policy...">
+                      <input name="cluster_id" type="hidden" value="{{ row.cluster_id }}">
+                      <input name="sender_email" type="hidden" value="{{ row.email }}">
+                      <button class="warm-mini-button" type="submit">Reverify</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="warm-empty-canvas">
+        <div class="warm-empty-icon"><span class="material-symbols-outlined" aria-hidden="true">dataset</span></div>
+        <strong>No active cluster members</strong>
+        <p>No sender mailbox has joined a private warm cluster yet. Enable a mailbox to see its status here.</p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+
+<section id="warm-records" class="panel warm-operation-panel warm-content-panel">
+  <span class="warm-operation-accent" aria-hidden="true"></span>
+  <div class="warm-operation-head">
+    <div>
+      <h3>WARM RECORD</h3>
+      <p>Local records and synced remote reports show warm messages sent, scanned, replied, and reported for this cluster.</p>
+    </div>
+    <span class="material-symbols-outlined warm-operation-head-icon" aria-hidden="true">monitoring</span>
+  </div>
+  <div class="warm-record-layout">
+    {% if remote_warm_summary %}
+      <div class="warm-record-remote">
+        <span class="material-symbols-outlined" aria-hidden="true">cloud_done</span>
+        <p>Remote cluster: {{ remote_warm_summary.sent_total or remote_warm_summary.sent_count or 0 }} sent/replied, {{ remote_warm_summary.received_count or remote_warm_summary.placement_count or 0 }} scanned, {{ "%.2f%%"|format((remote_warm_summary.inbox_rate or 0) * 100) }} inbox.{% if warm_summary.remote_has_mailbox_rows %} {{ warm_summary.remote_mailbox_rows_count }} remote mailbox row(s) synced.{% else %} Per-mailbox remote rows were not returned by ePetrel yet.{% endif %}</p>
+      </div>
+    {% elif remote_warm_summary_error %}
+      <div class="warm-record-remote warm-record-remote-warning">
+        <span class="material-symbols-outlined" aria-hidden="true">cloud_off</span>
+        <p>Remote cluster summary unavailable: {{ remote_warm_summary_error }}</p>
+      </div>
+    {% endif %}
+    {% if warm_summary.mailbox_rows %}
+      <div class="warm-record-table-wrap">
+        <table class="warm-record-table">
+          <thead>
+            <tr><th>Email</th><th>Sent</th><th>Replies</th><th>Scanned</th><th>Inbox</th><th>Spam</th><th>Other/Missing</th><th>Last Activity</th><th>Source</th><th>Worker</th></tr>
+          </thead>
+          <tbody>
+            {% for row in warm_summary.mailbox_rows %}
+              <tr>
+                <td>{{ row.email }}</td>
+                <td>{{ row.sent_count }}</td>
+                <td>{{ row.reply_count }}</td>
+                <td>{{ row.placement_count or row.received_count or 0 }}</td>
+                <td>{{ row.inbox_count or 0 }} / {{ row.placement_count or row.received_count or 0 }} ({{ "%.1f%%"|format(row.inbox_rate * 100) }})</td>
+                <td>{{ row.spam_count or 0 }} / {{ row.placement_count or row.received_count or 0 }} ({{ "%.1f%%"|format(row.spam_rate * 100) }})</td>
+                <td>{{ (row.other_count or 0) + (row.missing_count or 0) }}</td>
+                <td>{{ row.last_event_at or row.last_claim_at or row.last_heartbeat_at or "-" }}</td>
+                <td><span class="badge warm-record-source">{{ row.row_source or "Local" }}</span></td>
+                <td>
+                  <span class="badge">{{ row.worker_status or "idle" }}</span>
+                  {% if row.claim_message %}<small>{{ row.claim_message }}</small>{% endif %}
+                  {% if row.last_error %}<small class="warm-record-error">{{ row.last_error }}</small>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="warm-empty-canvas">
+        <div class="warm-empty-icon"><span class="material-symbols-outlined" aria-hidden="true">query_stats</span></div>
+        <strong>No WARM records yet</strong>
+        <p>When this client claims, sends, scans, or replies to warm tasks, the real counts will appear here.</p>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel warm-rules-panel">
+  <div class="panel-head warm-rules-head">
+    <div>
+      <h3>Private Warm Rules</h3>
+      <p class="text-sm text-on-surface-variant">The scheduler isolates clusters and warns before same-IP pairing.</p>
+    </div>
+    <span class="material-symbols-outlined warm-rules-sync" aria-hidden="true">sync</span>
+  </div>
+  <div class="warm-rules-grid">
+    {% for rule in warm_rule_cards %}
+      <div class="warm-rule-card warm-rule-card-{{ rule.tone }}{% if rule.wide %} warm-rule-card-wide{% endif %}">
+        <span class="warm-rule-accent" aria-hidden="true"></span>
+        <span class="warm-rule-icon material-symbols-outlined filled" aria-hidden="true">{{ rule.icon }}</span>
+        <p>{{ rule.text }}</p>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="warm-sla-box">
+    <div class="warm-sla-title">
+      <span class="material-symbols-outlined" aria-hidden="true">info</span>
+      <h4>Service Level Agreement Details</h4>
+    </div>
+    <div class="warm-sla-grid">
+      <div class="warm-sla-card">
+        <span>Scan SLA</span>
+        <p>Warning after {{ warm_policy.scan_soft_timeout_hours }} hours, missed after {{ warm_policy.scan_hard_timeout_hours }} hours.</p>
+      </div>
+      <div class="warm-sla-card">
+        <span>Reply SLA</span>
+        <p>Replies start after {{ warm_policy.reply_min_delay_hours }} hours. Avoids local sleep hours/weekends.</p>
+      </div>
+    </div>
+    <div class="warm-sla-preview">
+      <span class="material-symbols-outlined" aria-hidden="true">schedule</span>
+      <p>Next allowed reply preview: <strong>{{ next_reply_preview }}</strong></p>
+    </div>
+  </div>
+</section>
+</div>
+<div id="warm-working-toast" class="dispatch-working-toast" role="status" aria-live="polite" hidden>
+  <span class="dispatch-working-dot" aria-hidden="true"></span>
+  <div>
+    <strong>Warm Network is working</strong>
+    <span id="warm-working-toast-message">Preparing mailbox verification...</span>
+  </div>
+</div>
+<script>
+  const warmAuthForm = document.getElementById("warm-auth-form");
+  const warmAuthButton = document.getElementById("warm-auth-button");
+  const warmAuthProgress = document.getElementById("warm-auth-progress");
+  const warmCopyButtons = document.querySelectorAll("[data-copy-text]");
+  const warmSecretToggleButtons = document.querySelectorAll("[data-secret-target]");
+  const warmWorkingToast = document.getElementById("warm-working-toast");
+  const warmWorkingToastMessage = document.getElementById("warm-working-toast-message");
+  let warmAuthTimer = null;
+  let warmWorkingTimer = null;
+  let warmAuthDeviceCode = {{ (warm_auth_request.device_code|default(""))|tojson }};
+  let warmAuthDone = false;
+
+  const warmWorkingStages = [
+    "Sending the ownership probe email...",
+    "Scanning Inbox and Spam for the probe...",
+    "Moving the probe to Inbox when rescue is available...",
+    "Sending the automatic confirmation reply...",
+    "Registering the mailbox with Warm Network..."
+  ];
+
+  const showWarmWorkingToast = (message) => {
+    if (!warmWorkingToast || !warmWorkingToastMessage) {
+      return;
+    }
+    let stageIndex = 0;
+    warmWorkingToast.hidden = false;
+    warmWorkingToastMessage.textContent = message || warmWorkingStages[0];
+    if (warmWorkingTimer) {
+      window.clearInterval(warmWorkingTimer);
+    }
+    warmWorkingTimer = window.setInterval(() => {
+      warmWorkingToastMessage.textContent = warmWorkingStages[stageIndex % warmWorkingStages.length];
+      stageIndex += 1;
+    }, 3200);
+  };
+
+  document.querySelectorAll("form[data-warm-progress]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const submitter = event.submitter;
+      const message = (submitter && submitter.getAttribute("data-warm-progress")) || form.getAttribute("data-warm-progress") || "Warm Network is working...";
+      showWarmWorkingToast(message);
+      form.classList.add("dispatch-form-busy");
+      Array.prototype.forEach.call(form.querySelectorAll("button"), (button) => {
+        button.setAttribute("aria-busy", "true");
+      });
+    });
+  });
+
+  const copyWarmText = async (text) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  };
+
+  warmCopyButtons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      const text = button.getAttribute("data-copy-text") || "";
+      if (!text) {
+        return;
+      }
+      const originalHtml = button.innerHTML;
+      try {
+        await copyWarmText(text);
+        const iconOnly = button.classList.contains("warm-copy-icon-button") || button.classList.contains("warm-secret-icon-button");
+        button.innerHTML = iconOnly
+          ? '<span class="material-symbols-outlined">check</span>'
+          : '<span class="material-symbols-outlined">check</span>Copied';
+        window.setTimeout(() => {
+          button.innerHTML = originalHtml;
+        }, 1200);
+      } catch (error) {
+        const iconOnly = button.classList.contains("warm-copy-icon-button") || button.classList.contains("warm-secret-icon-button");
+        button.innerHTML = iconOnly
+          ? '<span class="material-symbols-outlined">error</span>'
+          : '<span class="material-symbols-outlined">error</span>Copy failed';
+        window.setTimeout(() => {
+          button.innerHTML = originalHtml;
+        }, 1400);
+      }
+    });
+  });
+
+  warmSecretToggleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const secret = document.getElementById(button.getAttribute("data-secret-target") || "");
+      const icon = button.querySelector(".material-symbols-outlined");
+      if (!secret || !icon) {
+        return;
+      }
+      secret.classList.toggle("warm-secret-value-masked");
+      icon.textContent = secret.classList.contains("warm-secret-value-masked") ? "visibility" : "visibility_off";
+    });
+  });
+
+  const showWarmAuthProgress = (message) => {
+    if (!warmAuthProgress) {
+      return;
+    }
+    const progressText = warmAuthProgress.querySelector(".import-progress-row span:first-child");
+    warmAuthProgress.hidden = false;
+    if (progressText && message) {
+      progressText.textContent = message;
+    }
+  };
+
+  const finishWarmAuth = () => {
+    if (warmAuthDone) {
+      return;
+    }
+    warmAuthDone = true;
+    if (warmAuthTimer) {
+      window.clearTimeout(warmAuthTimer);
+      warmAuthTimer = null;
+    }
+    window.location.replace("/warm");
+  };
+
+  const pollWarmAuthStatus = () => {
+    if (warmAuthDone) {
+      return;
+    }
+    const query = warmAuthDeviceCode ? `?device_code=${encodeURIComponent(warmAuthDeviceCode)}` : "";
+    fetch(`/warm/auth/status${query}`, {
+      credentials: "same-origin",
+      headers: {"Accept": "application/json"}
+    })
+      .then((response) => response.json())
+      .then((payload) => {
+        if (payload.status === "authorized") {
+          finishWarmAuth();
+          return;
+        }
+        if (payload.status === "error") {
+          showWarmAuthProgress(payload.error || "Warm Network authorization failed.");
+          if (warmAuthButton) {
+            warmAuthButton.disabled = false;
+            warmAuthButton.removeAttribute("aria-busy");
+          }
+          return;
+        }
+        warmAuthTimer = window.setTimeout(pollWarmAuthStatus, 900);
+      })
+      .catch(() => {
+        warmAuthTimer = window.setTimeout(pollWarmAuthStatus, 1200);
+      });
+  };
+
+  if (warmAuthForm) {
+    warmAuthForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const loginWindow = window.open("", "_blank");
+      showWarmAuthProgress("Waiting for ePetrel login...");
+      if (warmAuthButton) {
+        warmAuthButton.disabled = true;
+        warmAuthButton.setAttribute("aria-busy", "true");
+      }
+      fetch("/warm/auth/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "fetch"
+        }
+      })
+        .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
+        .then(({ ok, payload }) => {
+          if (!ok) {
+            throw new Error(payload.error || "Unable to start Warm Network authorization.");
+          }
+          if (payload.status === "authorized") {
+            if (loginWindow) {
+              loginWindow.close();
+            }
+            finishWarmAuth();
+            return;
+          }
+          if (payload.device_code) {
+            warmAuthDeviceCode = payload.device_code;
+          }
+          if (!payload.login_url) {
+            throw new Error(payload.error || "Unable to start Warm Network authorization.");
+          }
+          if (loginWindow) {
+            loginWindow.location.href = payload.login_url;
+            loginWindow.focus();
+          } else {
+            window.open(payload.login_url, "_blank");
+          }
+          pollWarmAuthStatus();
+        })
+        .catch((error) => {
+          if (loginWindow) {
+            loginWindow.close();
+          }
+          showWarmAuthProgress(error.message || "Warm Network authorization failed.");
+          if (warmAuthButton) {
+            warmAuthButton.disabled = false;
+            warmAuthButton.removeAttribute("aria-busy");
+          }
+        });
+    });
+  }
+
+  if (warmAuthDeviceCode && warmAuthProgress) {
+    showWarmAuthProgress("Waiting for ePetrel login...");
+    pollWarmAuthStatus();
+  }
+</script>
+{% endblock %}

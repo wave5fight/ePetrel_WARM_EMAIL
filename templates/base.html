@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html class="light" lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} - MutualWarm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link href="{{ url_for('static', path='tailwind-local.css') }}?v=offline-ui-20260723" rel="stylesheet">
+  <link href="{{ url_for('static', path='app.css') }}?v=offline-ui-20260723" rel="stylesheet">
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var iconFont = '24px "Material Symbols Outlined"';
+      function revealIcons() {
+        root.classList.add("material-symbols-ready");
+      }
+      if (!document.fonts || !document.fonts.load) {
+        window.addEventListener("load", revealIcons, { once: true });
+        return;
+      }
+      document.fonts.load(iconFont).then(function (faces) {
+        if (faces && faces.length) {
+          revealIcons();
+        }
+      }).catch(function () {});
+    })();
+  </script>
+</head>
+<body class="liquid-ui page-{{ page }} bg-background text-on-surface antialiased overflow-x-hidden">
+  <aside class="liquid-sidebar fixed left-0 top-0 z-50 flex h-screen w-56 flex-col gap-1 border-r border-outline-variant bg-surface-container-low p-3">
+    <div class="mb-5 flex items-center gap-2 px-2">
+      <div class="liquid-brand flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-white">
+        <span class="material-symbols-outlined filled">shuffle</span>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold leading-tight">{{ t("app_name") }}</h1>
+        <p class="text-xs text-on-surface-variant">{{ t("app_subtitle") }}</p>
+      </div>
+    </div>
+    <nav class="flex flex-col gap-1">
+      {% for item in nav %}
+        <a href="{% if item == 'warm' %}/{% else %}/{{ item }}{% endif %}" class="nav-item {% if page == item %}nav-item-active{% endif %}">
+          <span class="material-symbols-outlined {% if page == item %}filled{% endif %}">
+            {% if item == "warm" %}device_hub{% else %}settings_suggest{% endif %}
+          </span>
+          <span>{{ t("page." ~ item) }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+    <div class="liquid-user mt-auto rounded-lg bg-surface-container-high p-3">
+      <div class="flex items-center gap-2">
+        <div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white">eP</div>
+        <div class="min-w-0">
+          <p class="truncate text-xs font-bold">MutualWarm</p>
+          <p class="truncate text-[10px] tracking-normal text-outline">Issues: hello@epetrel.com</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <header class="liquid-topbar fixed left-56 right-0 top-0 z-40 flex h-14 items-center justify-between border-b border-outline-variant bg-white px-6">
+    <div class="flex items-center gap-2 text-xs text-on-surface-variant">
+      <span class="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_0_4px_rgba(34,197,94,.12)]"></span>
+      {{ t("system_status") }}
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+    </div>
+  </header>
+
+  <main class="ml-56 min-h-screen pt-14">
+    <div class="page-content-shell mx-auto max-w-[1440px] p-5">
+      <section class="liquid-page-head mb-5">
+        <div class="mb-2 text-xs font-bold uppercase tracking-wider text-primary">{{ t("app_name") }}</div>
+        <h2 class="text-3xl font-bold tracking-normal">{{ title }}</h2>
+        <p class="mt-1 max-w-4xl text-sm leading-5 text-on-surface-variant">{{ caption }}</p>
+      </section>
+
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+  <div id="global-working-toast" class="global-working-toast" role="status" aria-live="polite" hidden>
+    <span class="import-spinner" aria-hidden="true"></span>
+    <div>
+      <strong id="global-working-toast-title">Working</strong>
+      <span id="global-working-toast-text">Please wait while the request completes.</span>
+      <div class="import-progress-track"><span></span></div>
+    </div>
+  </div>
+  {% if flash %}
+    <div class="flash-popover-stack" role="region" aria-live="polite" aria-label="Notifications">
+      {% for item in flash %}
+        <div class="flash-popover flash-popover-{{ item.level }}" role="{% if item.level == 'error' %}alert{% else %}status{% endif %}" data-flash-popover>
+          <div class="flash-popover-icon">
+            <span class="material-symbols-outlined">
+              {% if item.level == "success" %}check_circle{% elif item.level == "warning" %}warning{% elif item.level == "error" %}error{% else %}info{% endif %}
+            </span>
+          </div>
+          <div class="flash-popover-message">{{ item.message }}</div>
+          <button class="flash-popover-close" type="button" aria-label="Close notification" data-flash-close>
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      {% endfor %}
+    </div>
+    <script>
+      (function () {
+        var popovers = Array.prototype.slice.call(document.querySelectorAll("[data-flash-popover]"));
+        popovers.forEach(function (popover) {
+          var closeButton = popover.querySelector("[data-flash-close]");
+          var close = function () {
+            popover.classList.add("flash-popover-hide");
+            window.setTimeout(function () {
+              if (popover.parentNode) {
+                popover.parentNode.removeChild(popover);
+              }
+            }, 180);
+          };
+          if (closeButton) {
+            closeButton.addEventListener("click", close);
+          }
+          if (!popover.classList.contains("flash-popover-error")) {
+            window.setTimeout(close, 7000);
+          }
+        });
+      })();
+    </script>
+  {% endif %}
+  <script>
+    (function () {
+      var toast = document.getElementById("global-working-toast");
+      if (!toast) return;
+      var titleNode = document.getElementById("global-working-toast-title");
+      var textNode = document.getElementById("global-working-toast-text");
+
+      function showWorkingToast(title, text) {
+        if (titleNode) {
+          titleNode.textContent = title || "Working";
+        }
+        if (textNode) {
+          textNode.textContent = text || "Please wait while the request completes.";
+        }
+        toast.hidden = false;
+      }
+
+      document.querySelectorAll("form[data-progress-title], form[data-progress-text], button[data-progress-title], button[data-progress-text]").forEach(function (node) {
+        var form = node.tagName === "FORM" ? node : node.form;
+        if (!form || form.dataset.globalProgressBound === "1") {
+          return;
+        }
+        form.dataset.globalProgressBound = "1";
+        form.addEventListener("submit", function (event) {
+          var submitter = event.submitter;
+          window.setTimeout(function () {
+            if (event.defaultPrevented) {
+              return;
+            }
+            var title = (submitter && submitter.dataset.progressTitle) || form.dataset.progressTitle;
+            var text = (submitter && submitter.dataset.progressText) || form.dataset.progressText;
+            if (!title && !text) {
+              return;
+            }
+            showWorkingToast(title, text);
+            var buttons = form.querySelectorAll("button");
+            buttons.forEach(function (button) {
+              button.setAttribute("aria-busy", "true");
+              button.disabled = true;
+            });
+          }, 0);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

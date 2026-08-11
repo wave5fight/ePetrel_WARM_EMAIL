@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid gap-6">
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h3>{{ t("seed_pool") }}</h3>
+        <p>{{ seeds|length }} configured</p>
+      </div>
+      <form method="post" action="/seeds/clear" onsubmit="return confirm('{{ t('clear_seeds_confirm') }}')">
+        <button class="secondary-button audit-clear-button" type="submit">
+          <span class="material-symbols-outlined">delete_sweep</span>{{ t("clear_seeds") }}
+        </button>
+      </form>
+    </div>
+    {% if seeds %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Email</th><th>Provider</th><th>IMAP</th><th>Inbox</th><th>Spam</th><th>Status</th><th>Checked</th></tr></thead>
+          <tbody>
+            {% for row in seeds %}
+              <tr>
+                <td>{{ row.email }}</td><td>{{ row.provider }}</td><td>{{ row.imap_host }}:{{ row.imap_port }}</td>
+                <td>{{ row.inbox_folder }}</td><td>{{ row.spam_folder }}</td><td><span class="badge">{{ row.status }}</span></td><td>{{ row.last_checked_at or "-" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">{{ t("no_seeds") }}</div>
+    {% endif %}
+    <form class="form-grid mt-5" method="post" action="/seeds">
+      <label>{{ t("seed_email") }}<input name="seed_email" type="email" required></label>
+      <label>{{ t("seed_password") }}<input name="seed_password" type="password" required></label>
+      <label>{{ t("provider") }}<input name="provider" value="Gmail"></label>
+      <label>{{ t("imap_host") }}<input name="imap_host" value="imap.gmail.com" required></label>
+      <label>{{ t("imap_port") }}<input name="imap_port" type="number" min="1" max="65535" value="993"></label>
+      <label>{{ t("inbox_folder") }}<input name="inbox_folder" value="INBOX"></label>
+      <label>{{ t("spam_folder") }}<input name="spam_folder" value="Spam"></label>
+      <label>{{ t("status") }}<select name="status"><option>active</option><option>paused</option></select></label>
+      <button class="primary-button md:col-span-4" type="submit">{{ t("save_seed") }}</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <form
+      class="flex flex-wrap items-end gap-4"
+      method="post"
+      action="/security/sync-seeds"
+      data-progress-title="{{ t('progress_seed_sync_title') }}"
+      data-progress-text="{{ t('progress_seed_sync_text') }}"
+    >
+      <label class="w-44">{{ t("days_window") }}<input name="days" type="number" min="1" max="90" value="{{ days }}"></label>
+      <label class="w-64">{{ t("seed_limit") }}<input name="seed_limit" type="number" min="10" max="500" value="80"></label>
+      <button class="primary-button" type="submit">{{ t("sync_seed") }}</button>
+    </form>
+  </section>
+
+  <section class="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-6">
+    {% for metric in metrics %}
+      <div class="metric-card">
+        <p>{{ metric.label }}</p>
+        <strong>{{ metric.value }}</strong>
+        <span>{{ metric.sub }}</span>
+      </div>
+    {% endfor %}
+  </section>
+
+  <section class="grid gap-3">
+    {% if alerts %}
+      {% for alert in alerts %}<div class="alert alert-{{ alert.level }}">{{ alert.message }}</div>{% endfor %}
+    {% else %}
+      <div class="alert alert-success">{{ t("no_alerts") }}</div>
+    {% endif %}
+  </section>
+
+  <section class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>{{ t("sender_domain_summary") }}</h3>
+        <form method="post" action="/security/outbound/clear" onsubmit="return confirm('{{ t('clear_security_outbound_confirm') }}')">
+          <button class="secondary-button audit-clear-button" type="submit">
+            <span class="material-symbols-outlined">delete_sweep</span>{{ t("clear_security_outbound") }}
+          </button>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Sender</th><th>Receiver</th><th>Domain</th><th>Status</th><th>Error</th></tr></thead>
+          <tbody>
+            {% for row in outbound %}
+              <tr><td>{{ row.id }}</td><td>{{ row.sender }}</td><td>{{ row.receiver }}</td><td>{{ row.target_domain }}</td><td>{{ row.status }}</td><td>{{ row.error }}</td></tr>
+            {% else %}
+              <tr><td colspan="6" class="text-center text-on-surface-variant">No outbound data</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>{{ t("event_details") }}</h3>
+        <form method="post" action="/security/events/clear" onsubmit="return confirm('{{ t('clear_security_events_confirm') }}')">
+          <button class="secondary-button audit-clear-button" type="submit">
+            <span class="material-symbols-outlined">delete_sweep</span>{{ t("clear_security_events") }}
+          </button>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Type</th><th>Receiver</th><th>Severity</th><th>Details</th></tr></thead>
+          <tbody>
+            {% for row in events %}
+              <tr><td>{{ row.event_time }}</td><td>{{ row.event_type }}</td><td>{{ row.receiver }}</td><td>{{ row.severity }}</td><td>{{ row.details }}</td></tr>
+            {% else %}
+              <tr><td colspan="5" class="text-center text-on-surface-variant">No events</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3>{{ t("sender_health") }}</h3>
+      <form method="post" action="/senders/clear" onsubmit="return confirm('{{ t('clear_senders_confirm') }}')">
+        <input name="next_url" type="hidden" value="/security">
+        <button class="secondary-button audit-clear-button" type="submit">
+          <span class="material-symbols-outlined">delete_sweep</span>{{ t("clear_senders") }}
+        </button>
+      </form>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Email</th><th>Status</th><th>Sent Today</th><th>Daily Limit</th><th>Fail Count</th><th>Last Sent</th></tr></thead>
+        <tbody>
+          {% for row in senders %}
+            <tr><td>{{ row.email }}</td><td>{{ row.status }}</td><td>{{ row.daily_sent_count }}</td><td>{{ row.daily_limit }}</td><td>{{ row.fail_count }}</td><td>{{ row.last_sent_at or "-" }}</td></tr>
+          {% else %}
+            <tr><td colspan="6" class="text-center text-on-surface-variant">{{ t("no_senders") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

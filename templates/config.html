@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="grid gap-6">
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h3>{{ t("sender_pool") }}</h3>
+        <p>{{ t("available_senders", count=available_sender_count) }}</p>
+      </div>
+      <form method="post" action="/senders/clear" onsubmit="return confirm('{{ t('clear_senders_confirm') }}')">
+        <input name="next_url" type="hidden" value="/config">
+        <button class="secondary-button audit-clear-button" type="submit">
+          <span class="material-symbols-outlined">delete_sweep</span>{{ t("clear_senders") }}
+        </button>
+      </form>
+    </div>
+
+    {% if senders %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Status</th>
+              <th>{{ t("auth_method") }}</th>
+              <th>{{ t("gmail_account_type") }}</th>
+              <th>Token</th>
+              <th>Daily</th>
+              <th>SMTP/API</th>
+              <th>{{ t("smtp_check") }}</th>
+              <th>{{ t("imap_check") }}</th>
+              <th>{{ t("mailbox_check") }}</th>
+              <th>From</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in senders %}
+              <tr>
+                <td>{{ row.email }}</td>
+                <td><span class="badge">{{ row.status }}</span></td>
+                <td><span class="badge">{{ row.auth_method or "smtp" }}</span></td>
+                <td><span class="badge">{{ row.gmail_account_type or "smtp_generic" }}</span></td>
+                <td><span class="badge">{{ row.gmail_token_status or "not_connected" }}</span></td>
+                <td>{{ row.daily_limit }}</td>
+                <td>{% if row.auth_method == "gmail_api" %}gmail.googleapis.com{% else %}{{ row.smtp_host }}:{{ row.smtp_port }}{% endif %}</td>
+                <td><span class="badge">{{ row.smtp_check_status or "unchecked" }}</span></td>
+                <td><span class="badge">{{ row.imap_check_status or "unchecked" }}</span></td>
+                <td title="{{ row.check_error or "" }}"><span class="badge">{{ row.mailbox_check_status or "unchecked" }}</span></td>
+                <td>{{ row.from_name }}</td>
+                <td>
+                  <form method="post" action="/senders/delete" onsubmit="return confirm('{{ t('delete_sender_confirm') }}')">
+                    <input name="sender_email" type="hidden" value="{{ row.email }}">
+                    <button class="table-action-button" type="submit" title="{{ t('delete_sender') }}" aria-label="{{ t('delete_sender') }}">
+                      <span class="material-symbols-outlined">delete</span>
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">{{ t("no_senders") }}</div>
+    {% endif %}
+
+    <form class="form-grid mt-5" method="post" action="/senders">
+      <label>{{ t("sender_email") }}<input id="sender-email-input" name="sender_email" type="email" required></label>
+      <label>{{ t("auth_method") }}
+        <select name="auth_method">
+          <option value="smtp">{{ t("auth_method_smtp") }}</option>
+          <option value="gmail_api">{{ t("auth_method_gmail_api") }}</option>
+        </select>
+      </label>
+      <label>{{ t("gmail_account_type") }}
+        <select id="gmail-account-type-select" name="gmail_account_type">
+          <option value="consumer_gmail">{{ t("gmail_account_type_consumer") }}</option>
+          <option value="workspace_gmail" selected>{{ t("gmail_account_type_workspace") }}</option>
+        </select>
+      </label>
+      <label>{{ t("sender_password") }}<input name="sender_password" type="password" autocomplete="off"></label>
+      <label>{{ t("daily_limit") }}<input id="sender-daily-limit-input" name="daily_limit" type="number" min="1" max="200" value="{{ gmail_workspace_daily_limit }}" data-consumer-limit="{{ gmail_consumer_daily_limit }}" data-workspace-limit="{{ gmail_workspace_daily_limit }}"></label>
+      <label>{{ t("from_name") }}<input name="from_name" value="MutualWarm" required></label>
+      <label>{{ t("smtp_host") }}<input name="smtp_host" value="smtp.gmail.com"></label>
+      <label>{{ t("smtp_port") }}<input name="smtp_port" type="number" min="1" max="65535" value="587"></label>
+      <label>{{ t("imap_host") }}<input name="imap_host" value="imap.gmail.com"></label>
+      <label>{{ t("imap_port") }}<input name="imap_port" type="number" min="1" max="65535" value="993"></label>
+      <label>{{ t("gmail_client_id") }}<input id="gmail-client-id-input" name="gmail_client_id" autocomplete="off"></label>
+      <label>{{ t("gmail_client_secret") }}<input id="gmail-client-secret-input" name="gmail_client_secret" type="password" autocomplete="off"></label>
+      <label class="checkbox-line md:col-span-4">
+        <input name="gmail_modify_scope" value="1" type="checkbox" checked disabled>
+        {{ t("gmail_modify_scope") }}
+      </label>
+      <div class="callout md:col-span-4">{{ t("gmail_modify_scope_hint") }}</div>
+      <div class="callout md:col-span-4">{{ t("gmail_api_hint") }}</div>
+      <div class="callout md:col-span-4">{{ t("gmail_sender_oauth_hint") }}</div>
+      {% if gmail_oauth_authorization_url %}
+        <label class="md:col-span-4">{{ t("gmail_oauth_link") }}
+          <input id="gmail-oauth-link-input" value="{{ gmail_oauth_authorization_url }}" readonly onclick="this.select()">
+        </label>
+      {% endif %}
+      <button class="primary-button md:col-span-2" type="submit" data-progress-title="{{ t('progress_sender_check_title') }}" data-progress-text="{{ t('progress_sender_check_text') }}">
+        {{ t("save_sender") }}
+      </button>
+      <button class="secondary-button md:col-span-2" type="submit" formaction="/gmail/oauth/start" formmethod="post" data-progress-title="{{ t('progress_gmail_oauth_title') }}" data-progress-text="{{ t('progress_gmail_oauth_text') }}">
+        <span class="material-symbols-outlined">vpn_key</span>{{ t("connect_gmail_api") }}
+      </button>
+      <button class="secondary-button md:col-span-2" type="submit" name="oauth_action" value="copy" formaction="/gmail/oauth/start" formmethod="post" data-progress-title="{{ t('progress_gmail_oauth_title') }}" data-progress-text="{{ t('progress_gmail_oauth_text') }}">
+        <span class="material-symbols-outlined">content_copy</span>{{ t("copy_gmail_oauth_link") }}
+      </button>
+    </form>
+
+    <form id="sender-import-form" class="form-grid mt-4" method="post" action="/senders/import" enctype="multipart/form-data" data-uploading-text="{{ t('sender_import_uploading') }}" data-checking-text="{{ t('sender_import_checking') }}">
+      <label class="md:col-span-2">{{ t("sender_import_file") }}<input name="senders_file" type="file" accept=".xlsx,.csv" required></label>
+      <label class="checkbox-line md:col-span-2"><input name="import_check_login" value="1" type="checkbox">{{ t("sender_import_check") }}</label>
+      <div class="callout md:col-span-3">
+        {{ t("sender_import_hint") }}
+        <a class="ml-2 font-bold" href="/senders/template">{{ t("sender_template") }}</a>
+      </div>
+      <button id="sender-import-submit" class="secondary-button" type="submit"><span class="material-symbols-outlined">upload_file</span>{{ t("import_senders") }}</button>
+      <div id="sender-import-progress" class="import-progress md:col-span-4" hidden>
+        <div class="import-progress-row">
+          <span id="sender-import-progress-text">{{ t("sender_import_uploading") }}</span>
+          <span class="import-spinner" aria-hidden="true"></span>
+        </div>
+        <div class="import-progress-track"><span></span></div>
+      </div>
+    </form>
+
+    <div class="callout mt-5">{{ t("sender_provider_hint") }}</div>
+    <div class="table-wrap mt-3">
+      <table>
+        <thead><tr><th>{{ t("provider") }}</th><th>Type</th><th>Host</th><th>Port</th><th>{{ t("email_security") }}</th></tr></thead>
+        <tbody>
+          {% for row in mail_provider_rows %}
+            <tr><td>{{ row.provider }}</td><td>{{ row.purpose }}</td><td>{{ row.host }}</td><td>{{ row.port }}</td><td>{{ row.security }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="llm-config-card">
+    <div class="llm-card-accent"></div>
+    <div class="llm-config-head">
+      <span class="material-symbols-outlined text-primary">settings_suggest</span>
+      <div>
+        <h3>{{ t("warm_current_llm") }}: <span>OpenAI / Compatible</span></h3>
+        <p>{{ t("warm_llm_caption") }}</p>
+      </div>
+    </div>
+
+    <form class="llm-config-form" method="post" action="/llm" data-progress-title="{{ t('progress_llm_save_title') }}" data-progress-text="{{ t('progress_llm_save_text') }}">
+      <input type="hidden" name="scope" value="warm">
+      <input type="hidden" name="provider" value="openai">
+      <div class="llm-field-grid">
+        <label class="llm-field">
+          {{ t("api_key") }}
+          <span class="llm-secret-field">
+            <input name="api_key" type="password" autocomplete="off" placeholder="Leave blank to keep saved key">
+            <button type="button" class="llm-icon-button" data-secret-toggle aria-label="Toggle API key visibility">
+              <span class="material-symbols-outlined">visibility</span>
+            </button>
+          </span>
+        </label>
+        <label class="llm-field">
+          {{ t("base_url") }}
+          <input name="base_url" value="{{ warm_provider_settings.base_url or warm_default_base_url }}">
+        </label>
+        <label class="llm-field llm-field-wide">
+          {{ t("model") }}
+          <input name="model" value="{{ warm_provider_settings.model or warm_default_model }}">
+        </label>
+      </div>
+
+      <label class="llm-field llm-prompt-field">
+        {{ t("system_prompt") }}
+        <span class="llm-prompt-shell">
+          <textarea name="system_prompt" rows="11" class="llm-prompt-editor">{{ warm_provider_settings.system_prompt or warm_default_system_prompt }}</textarea>
+          <span class="llm-prompt-actions">
+            <button type="button" class="llm-prompt-button" data-copy-prompt aria-label="Copy system prompt">
+              <span class="material-symbols-outlined">content_copy</span>
+            </button>
+            <button type="button" class="llm-prompt-button" data-expand-prompt aria-label="Expand system prompt">
+              <span class="material-symbols-outlined">fullscreen</span>
+            </button>
+          </span>
+        </span>
+      </label>
+
+      {% if not warm_provider_settings.has_api_key %}
+        <div class="alert alert-warning">{{ t("llm_missing_key") }}</div>
+      {% endif %}
+
+      <div class="llm-config-footer">
+        <span class="llm-ready-note">
+          <span class="material-symbols-outlined">check_circle</span>
+          Settings validated and ready to save.
+        </span>
+        <button class="primary-button llm-save-button" type="submit">
+          <span class="material-symbols-outlined">save</span>
+          {{ t("save_warm_llm") }}
+        </button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+  (function () {
+    document.querySelectorAll("[data-secret-toggle]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var input = button.parentElement.querySelector("input");
+        var icon = button.querySelector(".material-symbols-outlined");
+        if (!input || !icon) return;
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        icon.textContent = show ? "visibility_off" : "visibility";
+      });
+    });
+
+    document.querySelectorAll("[data-copy-prompt]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var textarea = button.closest(".llm-prompt-shell").querySelector("textarea");
+        if (!textarea || !navigator.clipboard) return;
+        navigator.clipboard.writeText(textarea.value).then(function () {
+          button.classList.add("llm-prompt-button-done");
+          window.setTimeout(function () {
+            button.classList.remove("llm-prompt-button-done");
+          }, 900);
+        });
+      });
+    });
+
+    document.querySelectorAll("[data-expand-prompt]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var shell = button.closest(".llm-prompt-shell");
+        var icon = button.querySelector(".material-symbols-outlined");
+        if (!shell || !icon) return;
+        var expanded = shell.classList.toggle("llm-prompt-shell-expanded");
+        icon.textContent = expanded ? "fullscreen_exit" : "fullscreen";
+      });
+    });
+  })();
+</script>
+{% endblock %}
