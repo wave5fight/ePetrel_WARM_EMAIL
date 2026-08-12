@@ -3,6 +3,7 @@ from urllib.parse import urlencode, urljoin
 import requests
 
 from config import EPETREL_BFF_BASE_URL
+from modules.network_proxy import apply_proxy_settings
 
 
 class WarmApiError(Exception):
@@ -15,6 +16,7 @@ def _bff_url(path):
 
 
 def _request(method, path, token="", payload=None, timeout=15):
+    apply_proxy_settings()
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

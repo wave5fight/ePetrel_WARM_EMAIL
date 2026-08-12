@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timezone
 from config import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_BASE_URL,
@@ -23,6 +23,8 @@ from config import (
     OPENAI_MODEL,
     WARM_REPLY_HARD_TIMEOUT_HOURS,
     WARM_REPLY_MIN_DELAY_HOURS,
+    WARM_MAILBOX_OFFLINE_WARN_SEC,
+    WARM_MAILBOX_STALE_SEC,
     WARM_SCAN_HARD_TIMEOUT_HOURS,
     WARM_SCAN_SOFT_TIMEOUT_HOURS,
 )
@@ -3164,6 +3166,47 @@ def _warm_summary_rate(numerator, denominator):
     return numerator / denominator if denominator else 0
 
 
+def _warm_parse_datetime(value):
+    value = (value or "").strip()
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(value[:19], fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _warm_mailbox_health(last_seen_at):
+    seen = _warm_parse_datetime(last_seen_at)
+    if not seen:
+        return {
+            "seconds_since_seen": None,
+            "health_status": "never_seen",
+            "health_reason": "No successful heartbeat has been recorded for this mailbox.",
+            "last_seen_at": last_seen_at or "",
+        }
+    age = max(0, int((datetime.now(timezone.utc) - seen).total_seconds()))
+    warn_sec = max(60, int(WARM_MAILBOX_OFFLINE_WARN_SEC or 3600))
+    stale_sec = max(warn_sec, int(WARM_MAILBOX_STALE_SEC or 259200))
+    if age >= stale_sec:
+        status = "stale_lost_task_risk"
+        reason = "No heartbeat for 72h+; queued Redis tasks may have expired."
+    elif age >= warn_sec:
+        status = "offline_warning"
+        reason = "No heartbeat for 1h+."
+    else:
+        status = "online"
+        reason = "Recent heartbeat received."
+    return {
+        "seconds_since_seen": age,
+        "health_status": status,
+        "health_reason": reason,
+        "last_seen_at": last_seen_at or "",
+    }
+
+
 def get_warm_summary(days=30, cluster_id=""):
     conn = get_connection()
     cursor = conn.cursor()
@@ -3253,6 +3296,7 @@ def get_warm_summary(days=30, cluster_id=""):
         inbox_count = int(item.get("inbox_count") or 0)
         spam_count = int(item.get("spam_count") or 0)
         state = state_rows.get(email, {})
+        health = _warm_mailbox_health(state.get("last_heartbeat_at", ""))
         mailbox_rows.append({
             "email": email,
             "sent_count": int(item.get("sent_count") or 0),
@@ -3272,6 +3316,7 @@ def get_warm_summary(days=30, cluster_id=""):
             "last_claim_at": state.get("last_claim_at", ""),
             "last_heartbeat_at": state.get("last_heartbeat_at", ""),
             "last_error": state.get("last_error", ""),
+            **health,
         })
     for item in active_rows:
         email = (item.get("email") or "").strip().lower()
@@ -3279,6 +3324,7 @@ def get_warm_summary(days=30, cluster_id=""):
             continue
         known_emails.add(email)
         state = state_rows.get(email, {})
+        health = _warm_mailbox_health(state.get("last_heartbeat_at", ""))
         mailbox_rows.append({
             "email": email,
             "sent_count": 0,
@@ -3298,10 +3344,12 @@ def get_warm_summary(days=30, cluster_id=""):
             "last_claim_at": state.get("last_claim_at", ""),
             "last_heartbeat_at": state.get("last_heartbeat_at", ""),
             "last_error": state.get("last_error", ""),
+            **health,
         })
     for email, state in state_rows.items():
         if email in known_emails:
             continue
+        health = _warm_mailbox_health(state.get("last_heartbeat_at", ""))
         mailbox_rows.append({
             "email": email,
             "sent_count": 0,
@@ -3321,6 +3369,7 @@ def get_warm_summary(days=30, cluster_id=""):
             "last_claim_at": state.get("last_claim_at", ""),
             "last_heartbeat_at": state.get("last_heartbeat_at", ""),
             "last_error": state.get("last_error", ""),
+            **health,
         })
     placement_count = int(row.get("placement_count") or 0)
     sent_count = int(row.get("sent_count") or 0)

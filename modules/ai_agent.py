@@ -4,6 +4,7 @@ import re
 
 from config import DEFAULT_SYSTEM_PROMPT
 from database.db_manager import get_llm_settings
+from modules.network_proxy import apply_proxy_settings
 
 try:
     from anthropic import Anthropic
@@ -37,6 +38,7 @@ def _llm_complete(user_prompt, max_tokens=120, temperature=0.5, purpose="cold"):
         return ""
 
     provider = settings.get("provider")
+    apply_proxy_settings()
     base_provider = provider[5:] if (provider or "").startswith("warm_") else provider
     model = settings.get("model")
     system_prompt = settings.get("system_prompt") or DEFAULT_SYSTEM_PROMPT

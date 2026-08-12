@@ -41,6 +41,8 @@ from config import (
     REMARKETING_COOLDOWN_DAYS,
     SPAM_PLACEMENT_RATE_ALERT,
     UNSUBSCRIBE_RATE_ALERT,
+    WARM_MAILBOX_OFFLINE_WARN_SEC,
+    WARM_MAILBOX_STALE_SEC,
     WARM_PROBE_REPLY_MAX_DELAY_SECONDS,
     WARM_PROBE_REPLY_MIN_DELAY_SECONDS,
     WARM_PROBE_RESCAN_TIMEOUT_SECONDS,
@@ -175,6 +177,7 @@ from modules.warm_client import (
     next_human_reply_time,
     warm_policy_config,
 )
+from modules.network_proxy import apply_proxy_settings, get_proxy_settings, save_proxy_settings
 from modules.warm_content import WARM_CONTENT_STAGES, WARM_TOPICS, generate_warm_content, warm_llm_self_check
 from modules.warm_worker import set_warm_worker_auth, start_warm_worker, stop_warm_worker
 from modules.warm_service import (
@@ -208,6 +211,7 @@ WARM_RULE_CARD_META = [
 
 
 init_db()
+apply_proxy_settings()
 
 app = FastAPI(title="MutualWarm")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("EPETREL_SESSION_SECRET", "epetrel-local-session-dev"))
@@ -255,6 +259,18 @@ TEXT = {
         "warm_caption": "Decentralized inbox placement, delayed replies, and contribution tracking for opted-in sender mailboxes.",
         "config_title": "Configuration",
         "config_caption": "Configure sender mailboxes, Gmail API OAuth, and the Warm OpenAI-compatible LLM used by MutualWarm.",
+        "proxy_settings": "HTTP(S) Proxy Settings",
+        "proxy_settings_caption": "Optional proxy for Google OAuth/API, ePetrel services, and LLM HTTP(S) requests.",
+        "proxy_enabled": "Use proxy / 启用代理",
+        "proxy_enabled_hint": "When off, this client does not apply the proxy configured here.",
+        "proxy_address": "Proxy address",
+        "proxy_address_placeholder": "http://127.0.0.1:7890",
+        "proxy_save": "Save Proxy Settings",
+        "proxy_saved": "Proxy settings saved.",
+        "proxy_invalid": "Proxy settings were not saved: {error}",
+        "proxy_note_title": "How to use / 使用说明",
+        "proxy_note": "EN: 127.0.0.1 means the proxy is running on this computer, so the host is usually the same for every local user. The port is not universal: enter the port shown by your proxy app (for example 7890, 7897, 1080, or another value). If the proxy runs on another computer, replace 127.0.0.1 with that computer's host or IP.\n中文：127.0.0.1 表示代理运行在本机，因此本机代理的地址通常都一样；但端口不是所有用户都相同，请填写代理软件显示的端口（例如 7890、7897、1080 或其他端口）。如果代理运行在另一台电脑，请将 127.0.0.1 改成那台电脑的主机名或 IP。",
+        "proxy_scope_note": "EN: This setting applies to HTTP(S) traffic such as Google OAuth, Gmail API, ePetrel BFF, and the LLM endpoint. It does not proxy SMTP/IMAP raw socket connections.\n中文：此设置用于 Google OAuth、Gmail API、ePetrel BFF 和 LLM 接口等 HTTP(S) 请求；不会代理 SMTP/IMAP 原始 socket 连接。",
         "crm_title": "CRM Workspace",
         "crm_caption": "Manage replies, remarketing, lead details, tags, tasks, external touch queues, and Obsidian graph export.",
         "crm_saved": "CRM updated.",
@@ -589,6 +605,18 @@ TEXT = {
         "dispatch_caption": "多发件箱轮询、Mail SMTP、Spintax、AI 破冰、限额与退订抑制。",
         "warm_title": "MutualWarm 网络",
         "warm_caption": "为主动加入的发件箱提供去中心化落箱统计、延迟回复和贡献记录。",
+        "proxy_settings": "HTTP(S) 代理设置",
+        "proxy_settings_caption": "可选代理，用于 Google OAuth/API、ePetrel 服务和 LLM 的 HTTP(S) 请求。",
+        "proxy_enabled": "Use proxy / 启用代理",
+        "proxy_enabled_hint": "关闭后，客户端不会应用此处配置的代理。",
+        "proxy_address": "代理地址 / Proxy address",
+        "proxy_address_placeholder": "http://127.0.0.1:7890",
+        "proxy_save": "保存代理设置 / Save Proxy Settings",
+        "proxy_saved": "代理设置已保存。",
+        "proxy_invalid": "代理设置未保存：{error}",
+        "proxy_note_title": "使用说明 / How to use",
+        "proxy_note": "EN: 127.0.0.1 means the proxy is running on this computer, so the host is usually the same for every local user. The port is not universal: enter the port shown by your proxy app (for example 7890, 7897, 1080, or another value). If the proxy runs on another computer, replace 127.0.0.1 with that computer's host or IP.\n中文：127.0.0.1 表示代理运行在本机，因此本机代理的地址通常都一样；但端口不是所有用户都相同，请填写代理软件显示的端口（例如 7890、7897、1080 或其他端口）。如果代理运行在另一台电脑，请将 127.0.0.1 改成那台电脑的主机名或 IP。",
+        "proxy_scope_note": "EN: This setting applies to HTTP(S) traffic such as Google OAuth, Gmail API, ePetrel BFF, and the LLM endpoint. It does not proxy SMTP/IMAP raw socket connections.\n中文：此设置用于 Google OAuth、Gmail API、ePetrel BFF 和 LLM 接口等 HTTP(S) 请求；不会代理 SMTP/IMAP 原始 socket 连接。",
         "crm_title": "CRM 工作台",
         "crm_caption": "管理回信、再营销、客户详情、标签、任务、外部触达队列和 Obsidian 知识图谱导出。",
         "crm_saved": "CRM 已更新。",
@@ -1062,9 +1090,10 @@ def load_persisted_warm_auth():
 
 def _session_epetrel_auth(request, key):
     auth_data = request.session.get(key) or {}
-    if key == "warm_auth" and not _email_test_auth_is_authorized(auth_data):
-        auth_data = load_persisted_warm_auth()
-        if _email_test_auth_is_authorized(auth_data):
+    if key == "warm_auth" and (not _email_test_auth_is_authorized(auth_data) or warm_auth_is_expired(auth_data)):
+        persisted_auth = load_persisted_warm_auth()
+        if _email_test_auth_is_authorized(persisted_auth):
+            auth_data = persisted_auth
             request.session[key] = auth_data
     if _email_test_auth_is_authorized(auth_data):
         if key == "warm_auth":
@@ -2365,6 +2394,23 @@ async def save_remarketing_cooldown(request: Request, remarketing_cooldown_days:
         return JSONResponse({"status": "saved", "days": days})
     flash(request, "success", t(get_lang(request), "remarketing_cooldown_saved"))
     return redirect("/dispatch#lead-section")
+
+
+@app.post("/settings/proxy")
+async def save_proxy_route(
+    request: Request,
+    proxy_enabled: str = Form(""),
+    proxy_url: str = Form(""),
+):
+    lang = get_lang(request)
+    enabled = proxy_enabled.strip().lower() in {"1", "true", "on", "yes"}
+    try:
+        save_proxy_settings(enabled, proxy_url)
+    except ValueError as exc:
+        flash(request, "error", t(lang, "proxy_invalid", error=str(exc)))
+        return redirect("/config")
+    flash(request, "success", t(lang, "proxy_saved"))
+    return redirect("/config")
 
 
 @app.get("/dispatch", response_class=HTMLResponse)
@@ -3881,7 +3927,7 @@ async def warm_page(request: Request):
                 remote_warm_summary_error = "This warm cluster has been dissolved by the owner. 该 Warm 群已被群主解散。"
             else:
                 remote_warm_summary_error = str(exc)
-    warm_summary = merge_warm_summary_for_display(warm_summary, remote_warm_summary)
+    warm_summary = prepare_warm_summary_for_display(merge_warm_summary_for_display(warm_summary, remote_warm_summary), selected_cluster)
     senders = list_senders()
     warm_mailboxes = list_warm_mailboxes()
     warm_sender_options = build_warm_sender_options(senders, warm_mailboxes)
@@ -3917,6 +3963,43 @@ async def warm_page(request: Request):
             warm_content_topics=WARM_TOPICS,
         ),
     )
+
+
+@app.get("/warm/summary/status")
+async def warm_summary_status(request: Request, cluster_id: str = ""):
+    auth_data = _session_epetrel_auth(request, "warm_auth")
+    if not auth_data.get("access_token"):
+        return JSONResponse({"success": False, "error": "warm_auth_required"}, status_code=401)
+    cluster_id = (cluster_id or request.session.get("warm_cluster_id") or "").strip()
+    if not cluster_id:
+        return JSONResponse({"success": False, "error": "cluster_id_required"}, status_code=400)
+    selected_cluster = get_warm_cluster(cluster_id, include_secrets=True)
+    if not selected_cluster:
+        return JSONResponse({"success": False, "error": "cluster_not_found"}, status_code=404)
+    local_summary = get_warm_summary(days=30, cluster_id=cluster_id)
+    remote_summary = {}
+    remote_error = ""
+    try:
+        owner_payload = {}
+        if selected_cluster.get("owner_private_key"):
+            owner_payload = make_owner_signature(selected_cluster["owner_private_key"], cluster_id, "members_read")
+        remote_summary = fetch_warm_summary(
+            auth_data["access_token"],
+            cluster_id=cluster_id,
+            days=30,
+            owner_payload=owner_payload,
+        )
+    except WarmApiError as exc:
+        if _warm_auth_error_is_invalid_token(exc):
+            return JSONResponse({"success": False, "error": "warm_auth_invalid"}, status_code=401)
+        remote_error = str(exc)
+    summary = prepare_warm_summary_for_display(merge_warm_summary_for_display(local_summary, remote_summary), selected_cluster)
+    return JSONResponse({
+        "success": True,
+        "summary": summary,
+        "remote_error": remote_error,
+        "cluster_id": cluster_id,
+    })
 
 
 @app.post("/warm/auth/start")
@@ -4735,6 +4818,59 @@ def _warm_remote_mailbox_candidates(summary):
     return []
 
 
+def _warm_parse_time(value):
+    value = str(value or "").strip()
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(value[:19], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _warm_mailbox_health_from_seen(last_seen_at, existing_status="", existing_reason="", existing_seconds=None):
+    if existing_status:
+        return {
+            "last_seen_at": str(last_seen_at or ""),
+            "seconds_since_seen": existing_seconds,
+            "health_status": str(existing_status),
+            "health_reason": str(existing_reason or ""),
+        }
+    seen = _warm_parse_time(last_seen_at)
+    if not seen:
+        return {
+            "last_seen_at": str(last_seen_at or ""),
+            "seconds_since_seen": None,
+            "health_status": "never_seen",
+            "health_reason": "No successful heartbeat has been recorded for this mailbox.",
+        }
+    age = max(0, int((datetime.utcnow() - seen).total_seconds()))
+    warn_sec = max(60, int(WARM_MAILBOX_OFFLINE_WARN_SEC or 3600))
+    stale_sec = max(warn_sec, int(WARM_MAILBOX_STALE_SEC or 259200))
+    if age >= stale_sec:
+        return {
+            "last_seen_at": str(last_seen_at or ""),
+            "seconds_since_seen": age,
+            "health_status": "stale_lost_task_risk",
+            "health_reason": "No heartbeat for 72h+; queued Redis tasks may have expired.",
+        }
+    if age >= warn_sec:
+        return {
+            "last_seen_at": str(last_seen_at or ""),
+            "seconds_since_seen": age,
+            "health_status": "offline_warning",
+            "health_reason": "No heartbeat for 1h+.",
+        }
+    return {
+        "last_seen_at": str(last_seen_at or ""),
+        "seconds_since_seen": age,
+        "health_status": "online",
+        "health_reason": "Recent heartbeat received.",
+    }
+
+
 def _normalize_warm_remote_mailbox_row(row):
     email = normalize_email(_warm_first_value(row, ("email", "mailbox_email", "sender_email", "address")))
     if not email:
@@ -4746,6 +4882,13 @@ def _normalize_warm_remote_mailbox_row(row):
     spam_count = _warm_int(_warm_first_value(row, ("spam_count", "spam", "junk_count", "junk")))
     other_count = _warm_int(_warm_first_value(row, ("other_count", "other")))
     missing_count = _warm_int(_warm_first_value(row, ("missing_count", "missing")))
+    last_seen_at = str(_warm_first_value(row, ("last_seen_at", "last_heartbeat_at"), ""))
+    health = _warm_mailbox_health_from_seen(
+        last_seen_at,
+        _warm_first_value(row, ("health_status",), ""),
+        _warm_first_value(row, ("health_reason",), ""),
+        _warm_first_value(row, ("seconds_since_seen",), None),
+    )
     return {
         "email": email,
         "sent_count": sent_count,
@@ -4765,7 +4908,9 @@ def _normalize_warm_remote_mailbox_row(row):
         "last_claim_at": str(_warm_first_value(row, ("last_claim_at",), "")),
         "last_heartbeat_at": str(_warm_first_value(row, ("last_heartbeat_at", "last_seen_at"), "")),
         "last_error": str(_warm_first_value(row, ("last_error", "error"), "")),
+        "removable_by_owner": bool(_warm_first_value(row, ("removable_by_owner",), False)),
         "row_source": "Remote",
+        **health,
     }
 
 
@@ -4822,6 +4967,24 @@ def merge_warm_summary_for_display(local_summary, remote_summary):
         merged_by_email[email] = merged
     summary["mailbox_rows"] = list(merged_by_email.values())
     return summary
+
+
+def prepare_warm_summary_for_display(summary, selected_cluster=None):
+    result = dict(summary or {})
+    is_owner = bool(selected_cluster and selected_cluster.get("role") == "owner" and selected_cluster.get("owner_private_key"))
+    rows = []
+    for row in result.get("mailbox_rows", []) or []:
+        item = dict(row)
+        last_seen_at = item.get("last_seen_at") or item.get("last_heartbeat_at") or ""
+        if not item.get("health_status"):
+            item.update(_warm_mailbox_health_from_seen(last_seen_at))
+        item["last_seen_at"] = item.get("last_seen_at") or last_seen_at
+        item["can_remove_stale"] = bool(is_owner and item.get("health_status") == "stale_lost_task_risk")
+        rows.append(item)
+    result["mailbox_rows"] = rows
+    result["last_refreshed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    result["can_remove_stale_members"] = is_owner
+    return result
 
 
 @app.post("/warm/account-probe/send")
@@ -6225,6 +6388,7 @@ async def save_llm(
 
 async def config_page(request: Request):
     warm_provider_settings = get_llm_settings("warm_openai") or {}
+    proxy_settings = get_proxy_settings()
     return templates.TemplateResponse(
         request=request,
         name="config.html",
@@ -6243,6 +6407,7 @@ async def config_page(request: Request):
             warm_default_base_url=OPENAI_BASE_URL,
             warm_default_model="gpt-4o-mini",
             warm_default_system_prompt=WARM_LLM_SYSTEM_PROMPT,
+            proxy_settings=proxy_settings,
         ),
     )
 

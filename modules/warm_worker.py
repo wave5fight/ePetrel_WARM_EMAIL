@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import random
 import smtplib
@@ -72,6 +73,35 @@ def _clear_invalid_warm_auth(exc):
     upsert_secret_app_setting(WARM_AUTH_SETTING_KEY, "")
     logger.warning("warm auth cleared reason=%s", redact_sensitive(str(exc)))
     return True
+
+
+def _apply_auth_renewal(response):
+    global _auth_data
+    if not isinstance(response, dict) or not _auth_data.get("access_token"):
+        return
+    expires_at = response.get("auth_expires_at")
+    expires_in = response.get("auth_expires_in")
+    try:
+        expires_at = float(expires_at or 0)
+    except (TypeError, ValueError):
+        expires_at = 0
+    try:
+        expires_in = int(expires_in or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if expires_at <= 0 and expires_in <= 0:
+        return
+    now = time.time()
+    data = dict(_auth_data)
+    if expires_at > 0:
+        data["_expires_at"] = expires_at
+        data["expires_in"] = max(0, int(expires_at - now))
+    else:
+        data["expires_in"] = expires_in
+        data["_expires_at"] = now + max(0, expires_in)
+    data["_stored_at"] = now
+    _auth_data = data
+    upsert_secret_app_setting(WARM_AUTH_SETTING_KEY, json.dumps(data, ensure_ascii=True))
 
 
 def start_warm_worker():
@@ -175,6 +205,7 @@ async def run_warm_worker_once():
             if auth_cleared:
                 return {"status": "idle", "reason": "warm_auth_invalid"}
             continue
+        _apply_auth_renewal(heartbeat_response)
         heartbeat_scheduler = str((heartbeat_response or {}).get("scheduler") or "")
         for mailbox in ready_mailboxes:
             upsert_warm_worker_state(

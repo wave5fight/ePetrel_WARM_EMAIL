@@ -2,6 +2,7 @@ import base64
 import os
 
 import requests
+from modules.network_proxy import apply_proxy_settings
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -79,6 +80,7 @@ def exchange_gmail_oauth_code(client_id, client_secret, redirect_uri, authorizat
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("google-auth-oauthlib is not installed.") from exc
 
+    apply_proxy_settings()
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
     flow = Flow.from_client_config(
         _client_config(client_id, client_secret, redirect_uri),
@@ -98,6 +100,7 @@ def refresh_gmail_access_token(client_id, client_secret, refresh_token, scopes=N
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("google-auth is not installed.") from exc
 
+    apply_proxy_settings()
     credentials = Credentials(
         token=None,
         refresh_token=refresh_token,
@@ -115,6 +118,7 @@ def refresh_gmail_access_token(client_id, client_secret, refresh_token, scopes=N
 
 
 def fetch_gmail_profile(access_token):
+    apply_proxy_settings()
     response = requests.get(
         GMAIL_PROFILE_URL,
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
@@ -132,6 +136,7 @@ def fetch_gmail_profile(access_token):
 
 
 def send_gmail_api_message(client_id, client_secret, refresh_token, message_bytes):
+    apply_proxy_settings()
     access_token = refresh_gmail_access_token(client_id, client_secret, refresh_token, scopes=[GMAIL_SEND_SCOPE])
     encoded_message = base64.urlsafe_b64encode(message_bytes).decode("ascii")
     response = requests.post(
@@ -185,6 +190,7 @@ def _gmail_headers(payload):
 
 
 def find_gmail_message_placement(client_id, client_secret, refresh_token, token, max_results=10):
+    apply_proxy_settings()
     access_token = refresh_gmail_access_token(client_id, client_secret, refresh_token, scopes=[GMAIL_READONLY_SCOPE])
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
     response = requests.get(
@@ -271,6 +277,7 @@ def find_gmail_message_placement(client_id, client_secret, refresh_token, token,
 
 
 def move_gmail_message_to_inbox(client_id, client_secret, refresh_token, message_id):
+    apply_proxy_settings()
     access_token = refresh_gmail_access_token(client_id, client_secret, refresh_token, scopes=[GMAIL_MODIFY_SCOPE])
     response = requests.post(
         f"{GMAIL_MESSAGES_URL}/{message_id}/modify",

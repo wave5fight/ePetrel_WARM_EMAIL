@@ -452,15 +452,20 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
   </section>
 </div>
 
-<section id="warm-records" class="panel warm-operation-panel warm-content-panel">
+<section id="warm-records" class="panel warm-operation-panel warm-content-panel" data-cluster-id="{{ selected_cluster.cluster_id if selected_cluster else '' }}" data-can-remove-stale="{{ '1' if warm_summary.can_remove_stale_members else '0' }}">
   <span class="warm-operation-accent" aria-hidden="true"></span>
   <div class="warm-operation-head">
     <div>
       <h3>WARM RECORD</h3>
       <p>Local records and synced remote reports show warm messages sent, scanned, replied, and reported for this cluster.</p>
+      <p class="warm-record-refresh-meta">Last refreshed: <span id="warm-record-last-refreshed">{{ warm_summary.last_refreshed_at or "-" }}</span></p>
     </div>
-    <span class="material-symbols-outlined warm-operation-head-icon" aria-hidden="true">monitoring</span>
+    <button id="warm-record-refresh-button" class="secondary-button warm-record-refresh-button" type="button" title="Refresh Warm records now">
+      <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+      Refresh Now
+    </button>
   </div>
+  <div id="warm-record-refresh-status" class="warm-record-refresh-status" aria-live="polite"></div>
   <div class="warm-record-layout">
     {% if remote_warm_summary %}
       <div class="warm-record-remote">
@@ -473,13 +478,13 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
         <p>Remote cluster summary unavailable: {{ remote_warm_summary_error }}</p>
       </div>
     {% endif %}
-    {% if warm_summary.mailbox_rows %}
+    {% if warm_summary.mailbox_rows or selected_cluster %}
       <div class="warm-record-table-wrap">
         <table class="warm-record-table">
           <thead>
-            <tr><th>Email</th><th>Sent</th><th>Replies</th><th>Scanned</th><th>Inbox</th><th>Spam</th><th>Other/Missing</th><th>Last Activity</th><th>Source</th><th>Worker</th></tr>
+            <tr><th>Email</th><th>Sent</th><th>Replies</th><th>Scanned</th><th>Inbox</th><th>Spam</th><th>Other/Missing</th><th>Last Activity</th><th>Last Seen</th><th>Health</th><th>Source</th><th>Worker</th><th>Action</th></tr>
           </thead>
-          <tbody>
+          <tbody id="warm-record-table-body">
             {% for row in warm_summary.mailbox_rows %}
               <tr>
                 <td>{{ row.email }}</td>
@@ -490,13 +495,31 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
                 <td>{{ row.spam_count or 0 }} / {{ row.placement_count or row.received_count or 0 }} ({{ "%.1f%%"|format(row.spam_rate * 100) }})</td>
                 <td>{{ (row.other_count or 0) + (row.missing_count or 0) }}</td>
                 <td>{{ row.last_event_at or row.last_claim_at or row.last_heartbeat_at or "-" }}</td>
+                <td>{{ row.last_seen_at or row.last_heartbeat_at or "-" }}</td>
+                <td>
+                  <span class="badge warm-health-{{ row.health_status or 'unknown' }}">{{ row.health_status or "unknown" }}</span>
+                  {% if row.health_reason %}<small>{{ row.health_reason }}</small>{% endif %}
+                </td>
                 <td><span class="badge warm-record-source">{{ row.row_source or "Local" }}</span></td>
                 <td>
                   <span class="badge">{{ row.worker_status or "idle" }}</span>
                   {% if row.claim_message %}<small>{{ row.claim_message }}</small>{% endif %}
                   {% if row.last_error %}<small class="warm-record-error">{{ row.last_error }}</small>{% endif %}
                 </td>
+                <td>
+                  {% if row.can_remove_stale %}
+                    <form method="post" action="/warm/clusters/members/remove" onsubmit="return confirm('Remove this stale mailbox from the Warm cluster? It can join again later after re-approval.')">
+                      <input type="hidden" name="cluster_id" value="{{ selected_cluster.cluster_id }}">
+                      <input type="hidden" name="member_email" value="{{ row.email }}">
+                      <button class="warm-member-action-button warm-member-remove-button" type="submit" title="Remove stale mailbox"><span class="material-symbols-outlined">person_remove</span></button>
+                    </form>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
               </tr>
+            {% else %}
+              <tr><td colspan="13">No WARM records yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -565,6 +588,11 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
   const warmSecretToggleButtons = document.querySelectorAll("[data-secret-target]");
   const warmWorkingToast = document.getElementById("warm-working-toast");
   const warmWorkingToastMessage = document.getElementById("warm-working-toast-message");
+  const warmRecordsPanel = document.getElementById("warm-records");
+  const warmRecordRefreshButton = document.getElementById("warm-record-refresh-button");
+  const warmRecordRefreshStatus = document.getElementById("warm-record-refresh-status");
+  const warmRecordLastRefreshed = document.getElementById("warm-record-last-refreshed");
+  const warmRecordTableBody = document.getElementById("warm-record-table-body");
   let warmAuthTimer = null;
   let warmWorkingTimer = null;
   let warmAuthDeviceCode = {{ (warm_auth_request.device_code|default(""))|tojson }};
@@ -605,6 +633,149 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
       });
     });
   });
+
+  const warmPercent = (value) => `${((Number(value) || 0) * 100).toFixed(1)}%`;
+  const warmCount = (value) => Number(value) || 0;
+  const warmText = (value, fallback = "-") => {
+    const text = value === null || value === undefined ? "" : String(value);
+    return text || fallback;
+  };
+  const warmAppend = (parent, tag, text, className = "") => {
+    const node = document.createElement(tag);
+    if (className) {
+      node.className = className;
+    }
+    node.textContent = text;
+    parent.appendChild(node);
+    return node;
+  };
+  const warmRenderRecordRows = (rows) => {
+    if (!warmRecordTableBody) {
+      return;
+    }
+    warmRecordTableBody.innerHTML = "";
+    if (!rows.length) {
+      const emptyRow = document.createElement("tr");
+      const emptyCell = document.createElement("td");
+      emptyCell.colSpan = 13;
+      emptyCell.textContent = "No WARM records yet.";
+      emptyRow.appendChild(emptyCell);
+      warmRecordTableBody.appendChild(emptyRow);
+      return;
+    }
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      warmAppend(tr, "td", warmText(row.email));
+      warmAppend(tr, "td", warmCount(row.sent_count));
+      warmAppend(tr, "td", warmCount(row.reply_count));
+      const placementCount = warmCount(row.placement_count || row.received_count);
+      warmAppend(tr, "td", placementCount);
+      warmAppend(tr, "td", `${warmCount(row.inbox_count)} / ${placementCount} (${warmPercent(row.inbox_rate)})`);
+      warmAppend(tr, "td", `${warmCount(row.spam_count)} / ${placementCount} (${warmPercent(row.spam_rate)})`);
+      warmAppend(tr, "td", warmCount(row.other_count) + warmCount(row.missing_count));
+      warmAppend(tr, "td", warmText(row.last_event_at || row.last_claim_at || row.last_heartbeat_at));
+      warmAppend(tr, "td", warmText(row.last_seen_at || row.last_heartbeat_at));
+      const healthTd = document.createElement("td");
+      warmAppend(healthTd, "span", warmText(row.health_status, "unknown"), `badge warm-health-${row.health_status || "unknown"}`);
+      if (row.health_reason) {
+        warmAppend(healthTd, "small", row.health_reason);
+      }
+      tr.appendChild(healthTd);
+      const sourceTd = document.createElement("td");
+      warmAppend(sourceTd, "span", warmText(row.row_source, "Local"), "badge warm-record-source");
+      tr.appendChild(sourceTd);
+      const workerTd = document.createElement("td");
+      warmAppend(workerTd, "span", warmText(row.worker_status, "idle"), "badge");
+      if (row.claim_message) {
+        warmAppend(workerTd, "small", row.claim_message);
+      }
+      if (row.last_error) {
+        warmAppend(workerTd, "small", row.last_error, "warm-record-error");
+      }
+      tr.appendChild(workerTd);
+      const actionTd = document.createElement("td");
+      if (row.can_remove_stale && warmRecordsPanel) {
+        const form = document.createElement("form");
+        form.method = "post";
+        form.action = "/warm/clusters/members/remove";
+        form.addEventListener("submit", (event) => {
+          if (!window.confirm("Remove this stale mailbox from the Warm cluster? It can join again later after re-approval.")) {
+            event.preventDefault();
+          }
+        });
+        const clusterInput = document.createElement("input");
+        clusterInput.type = "hidden";
+        clusterInput.name = "cluster_id";
+        clusterInput.value = warmRecordsPanel.getAttribute("data-cluster-id") || "";
+        const emailInput = document.createElement("input");
+        emailInput.type = "hidden";
+        emailInput.name = "member_email";
+        emailInput.value = row.email || "";
+        const button = document.createElement("button");
+        button.className = "warm-member-action-button warm-member-remove-button";
+        button.type = "submit";
+        button.title = "Remove stale mailbox";
+        button.innerHTML = '<span class="material-symbols-outlined">person_remove</span>';
+        form.appendChild(clusterInput);
+        form.appendChild(emailInput);
+        form.appendChild(button);
+        actionTd.appendChild(form);
+      } else {
+        actionTd.textContent = "-";
+      }
+      tr.appendChild(actionTd);
+      warmRecordTableBody.appendChild(tr);
+    });
+  };
+  const warmRefreshRecords = async ({ manual = false } = {}) => {
+    if (!warmRecordsPanel || !warmRecordTableBody) {
+      return;
+    }
+    const clusterId = warmRecordsPanel.getAttribute("data-cluster-id") || "";
+    if (!clusterId) {
+      return;
+    }
+    if (warmRecordRefreshButton && manual) {
+      warmRecordRefreshButton.setAttribute("aria-busy", "true");
+      warmRecordRefreshButton.disabled = true;
+    }
+    if (warmRecordRefreshStatus && manual) {
+      warmRecordRefreshStatus.textContent = "Refreshing Warm records...";
+    }
+    try {
+      const response = await fetch(`/warm/summary/status?cluster_id=${encodeURIComponent(clusterId)}`, {
+        credentials: "same-origin",
+        headers: {"Accept": "application/json"}
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Warm records refresh failed.");
+      }
+      const summary = payload.summary || {};
+      warmRenderRecordRows(summary.mailbox_rows || []);
+      if (warmRecordLastRefreshed) {
+        warmRecordLastRefreshed.textContent = summary.last_refreshed_at || "-";
+      }
+      if (warmRecordRefreshStatus) {
+        warmRecordRefreshStatus.textContent = payload.remote_error ? `Remote summary warning: ${payload.remote_error}` : "";
+      }
+    } catch (error) {
+      if (warmRecordRefreshStatus) {
+        warmRecordRefreshStatus.textContent = error.message || "Warm records refresh failed.";
+      }
+    } finally {
+      if (warmRecordRefreshButton) {
+        warmRecordRefreshButton.disabled = false;
+        warmRecordRefreshButton.removeAttribute("aria-busy");
+      }
+    }
+  };
+  if (warmRecordRefreshButton) {
+    warmRecordRefreshButton.addEventListener("click", () => warmRefreshRecords({ manual: true }));
+  }
+  if (warmRecordsPanel && warmRecordTableBody) {
+    window.setInterval(() => warmRefreshRecords(), 60 * 60 * 1000);
+  }
 
   const copyWarmText = async (text) => {
     if (navigator.clipboard && window.isSecureContext) {

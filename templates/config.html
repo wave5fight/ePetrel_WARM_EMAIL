@@ -206,6 +206,53 @@
       </div>
     </form>
   </section>
+
+  <section class="proxy-config-card">
+    <div class="proxy-config-head">
+      <div>
+        <h3>{{ t("proxy_settings") }}</h3>
+        <p>{{ t("proxy_settings_caption") }}</p>
+      </div>
+      <span class="material-symbols-outlined text-primary" aria-hidden="true">vpn_lock</span>
+    </div>
+
+    <form class="proxy-config-form" method="post" action="/settings/proxy">
+      <div class="proxy-config-row">
+        <div class="proxy-toggle-copy">
+          <label class="proxy-toggle-label" for="proxy-enabled">
+            <span class="proxy-switch">
+              <input id="proxy-enabled" name="proxy_enabled" value="1" type="checkbox" {% if proxy_settings.enabled %}checked{% endif %}>
+              <span class="proxy-switch-track" aria-hidden="true"><span class="proxy-switch-thumb"></span></span>
+            </span>
+            <span>
+              <strong>{{ t("proxy_enabled") }}</strong>
+              <small>{{ t("proxy_enabled_hint") }}</small>
+            </span>
+          </label>
+        </div>
+        <label class="proxy-address-field" for="proxy-url">
+          <span>{{ t("proxy_address") }}</span>
+          <input id="proxy-url" name="proxy_url" type="text" value="{{ proxy_settings.url }}" placeholder="{{ t('proxy_address_placeholder') }}" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+
+      <div class="proxy-config-note">
+        <strong>{{ t("proxy_note_title") }}</strong>
+        <p>{{ t("proxy_note") }}</p>
+        <p>{{ t("proxy_scope_note") }}</p>
+      </div>
+
+      <div class="proxy-config-footer">
+        <span class="proxy-effective-state {% if not proxy_settings.enabled %}proxy-effective-state-disabled{% endif %}">
+          <span class="material-symbols-outlined" aria-hidden="true">{% if proxy_settings.enabled %}check_circle{% else %}block{% endif %}</span>
+          {% if proxy_settings.enabled %}Enabled / 已启用{% else %}Disabled / 未启用{% endif %}
+        </span>
+        <button class="primary-button" type="submit">
+          <span class="material-symbols-outlined">save</span>{{ t("proxy_save") }}
+        </button>
+      </div>
+    </form>
+  </section>
 </div>
 
 <script>
