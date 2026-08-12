@@ -109,12 +109,12 @@ if exist "%CD%\python_env" (
 )
 
 echo Checking Python runtime...
-"%APP_PYTHON%" -c "import fastapi, uvicorn, pandas, openpyxl, cryptography, requests, google_auth_oauthlib, openai" >nul 2>nul
+"%APP_PYTHON%" -c "import fastapi, uvicorn, cryptography, requests, google_auth_oauthlib, openai" >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Python runtime or dependencies are invalid.
   echo.
   echo Details:
-  "%APP_PYTHON%" -c "import fastapi, uvicorn, pandas, openpyxl, cryptography, requests, google_auth_oauthlib, openai"
+  "%APP_PYTHON%" -c "import fastapi, uvicorn, cryptography, requests, google_auth_oauthlib, openai"
   echo.
   echo If this is a source checkout, delete mutualwarmenv and run start.bat again.
   echo If this is a release package, rebuild python_env on Windows.

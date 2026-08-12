@@ -9,7 +9,7 @@ This repository contains the local web console and worker. It does not include t
 | Area | Features |
 | --- | --- |
 | Warm network | Create or join private warm clusters, approve members, and sync cluster state |
-| Mailbox setup | Manage sender mailboxes manually or by CSV/XLSX import |
+| Mailbox setup | Save Gmail / Google Workspace OAuth mailboxes for Warm participation |
 | Gmail API | Connect Gmail or Google Workspace senders with OAuth for send, scan, reply, and inbox rescue capabilities |
 | Ownership checks | Verify warm mailbox ownership through ePetrel BFF probes |
 | Local worker | Claim scheduler tasks, send initial warm messages, scan placement, rescue supported Gmail spam placements, and send delayed replies |
@@ -28,9 +28,8 @@ This repository contains the local web console and worker. It does not include t
 - Backend: FastAPI and Uvicorn
 - UI: Jinja2 templates and static CSS
 - Data: SQLite
-- Email: SMTP/IMAP plus Gmail API OAuth
+- Email: Gmail API OAuth
 - AI: OpenAI-compatible Chat Completions
-- Files: CSV/XLSX sender import through pandas and openpyxl
 
 ## Project Structure
 
@@ -43,7 +42,7 @@ MutualWarm/
 │   ├── base.html               # Shared layout
 │   ├── warm.html               # MutualWarm Network home
 │   └── config.html             # Sender and Warm LLM configuration
-├── static/                     # CSS and downloadable sender template assets
+├── static/                     # CSS assets
 ├── database/
 │   └── db_manager.py           # SQLite schema, migrations, and data access
 └── modules/
@@ -53,8 +52,8 @@ MutualWarm/
     ├── warm_content.py         # Warm conversation generation and fallback templates
     ├── warm_account_probe.py   # Ownership probe scanning and inbox rescue
     ├── gmail_api.py            # Gmail OAuth and Gmail API helpers
-    ├── sender_checks.py        # SMTP/IMAP login checks
-    ├── email_engine.py         # Shared sender normalization and send helpers
+    ├── email_utils.py          # Email normalization helpers
+    ├── llm_client.py           # Warm LLM client wrapper
     └── safe_logging.py         # Secret-safe logging helpers
 ```
 
@@ -87,22 +86,18 @@ EPETREL_SESSION_SECRET="change-this-local-session-secret"
 EPETREL_DB_PATH="database/storage.db"
 
 MAIL_FROM_NAME="MutualWarm"
-MAILFORGE_SMTP_HOST=""
-MAILFORGE_SMTP_PORT=587
-MAILFORGE_IMAP_HOST=""
-MAILFORGE_IMAP_PORT=993
 
 OPENAI_API_KEY=""
 OPENAI_BASE_URL="https://api.openai.com/v1"
 OPENAI_MODEL="gpt-4o-mini"
 ```
 
-You can also save sender mailboxes and the Warm OpenAI-compatible LLM settings from the `Configuration` page.
+You can save Gmail OAuth mailbox settings and the Warm OpenAI-compatible LLM settings from the `Configuration` page.
 
 ## Start
 
 ```bash
-uvicorn web_app:app --host 127.0.0.1 --port 8000
+uvicorn web_app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Open:
@@ -126,18 +121,17 @@ http://127.0.0.1:8000
 
 MutualWarm requests Gmail scopes needed for full-auto warm behavior, including sending, scanning, replying, and supported inbox rescue actions. Configure your own Google Cloud OAuth client, then enter the client ID and client secret for each sender on the `Configuration` page before connecting Gmail API.
 
-Use an app password only for SMTP/IMAP senders. Do not enter your main Google or Microsoft login password.
 
 ## Routes
 
 | Route | Purpose |
 | --- | --- |
 | `GET /` | MutualWarm Network home |
-| `GET /warm` | Legacy redirect to `/` |
-| `GET /config` | Sender, Gmail OAuth, and Warm LLM configuration |
-| `POST /senders*` | Sender pool management |
+| `GET /warm` | MutualWarm Network home |
+| `GET /config` | Gmail OAuth mailbox and Warm LLM configuration |
+| `POST /senders*` | Gmail API mailbox pool management |
 | `POST /gmail/oauth/start` and `GET /gmail/oauth/callback` | Gmail API OAuth |
 | `POST /llm` | Warm OpenAI-compatible LLM settings |
 | `GET/POST /warm/*` | Warm auth, clusters, members, mailboxes, ownership, and content preview |
 
-Legacy cold email, CRM, inbox, audit, security, seed, lead, and email-test pages are not exposed by the open-source MutualWarm client.
+This standalone client contains only MutualWarm network, Gmail OAuth mailbox, Warm LLM, proxy, and local worker features.

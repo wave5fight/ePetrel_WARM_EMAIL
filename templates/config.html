@@ -10,7 +10,7 @@
       </div>
       <form method="post" action="/senders/clear" onsubmit="return confirm('{{ t('clear_senders_confirm') }}')">
         <input name="next_url" type="hidden" value="/config">
-        <button class="secondary-button audit-clear-button" type="submit">
+        <button class="secondary-button warm-danger-button" type="submit">
           <span class="material-symbols-outlined">delete_sweep</span>{{ t("clear_senders") }}
         </button>
       </form>
@@ -23,13 +23,10 @@
             <tr>
               <th>Email</th>
               <th>Status</th>
-              <th>{{ t("auth_method") }}</th>
               <th>{{ t("gmail_account_type") }}</th>
               <th>Token</th>
               <th>Daily</th>
-              <th>SMTP/API</th>
-              <th>{{ t("smtp_check") }}</th>
-              <th>{{ t("imap_check") }}</th>
+              <th>API</th>
               <th>{{ t("mailbox_check") }}</th>
               <th>From</th>
               <th></th>
@@ -40,13 +37,10 @@
               <tr>
                 <td>{{ row.email }}</td>
                 <td><span class="badge">{{ row.status }}</span></td>
-                <td><span class="badge">{{ row.auth_method or "smtp" }}</span></td>
-                <td><span class="badge">{{ row.gmail_account_type or "smtp_generic" }}</span></td>
+                <td><span class="badge">{{ row.gmail_account_type or "workspace_gmail" }}</span></td>
                 <td><span class="badge">{{ row.gmail_token_status or "not_connected" }}</span></td>
                 <td>{{ row.daily_limit }}</td>
-                <td>{% if row.auth_method == "gmail_api" %}gmail.googleapis.com{% else %}{{ row.smtp_host }}:{{ row.smtp_port }}{% endif %}</td>
-                <td><span class="badge">{{ row.smtp_check_status or "unchecked" }}</span></td>
-                <td><span class="badge">{{ row.imap_check_status or "unchecked" }}</span></td>
+                <td>gmail.googleapis.com</td>
                 <td title="{{ row.check_error or "" }}"><span class="badge">{{ row.mailbox_check_status or "unchecked" }}</span></td>
                 <td>{{ row.from_name }}</td>
                 <td>
@@ -68,25 +62,14 @@
 
     <form class="form-grid mt-5" method="post" action="/senders">
       <label>{{ t("sender_email") }}<input id="sender-email-input" name="sender_email" type="email" required></label>
-      <label>{{ t("auth_method") }}
-        <select name="auth_method">
-          <option value="smtp">{{ t("auth_method_smtp") }}</option>
-          <option value="gmail_api">{{ t("auth_method_gmail_api") }}</option>
-        </select>
-      </label>
       <label>{{ t("gmail_account_type") }}
         <select id="gmail-account-type-select" name="gmail_account_type">
           <option value="consumer_gmail">{{ t("gmail_account_type_consumer") }}</option>
           <option value="workspace_gmail" selected>{{ t("gmail_account_type_workspace") }}</option>
         </select>
       </label>
-      <label>{{ t("sender_password") }}<input name="sender_password" type="password" autocomplete="off"></label>
       <label>{{ t("daily_limit") }}<input id="sender-daily-limit-input" name="daily_limit" type="number" min="1" max="200" value="{{ gmail_workspace_daily_limit }}" data-consumer-limit="{{ gmail_consumer_daily_limit }}" data-workspace-limit="{{ gmail_workspace_daily_limit }}"></label>
       <label>{{ t("from_name") }}<input name="from_name" value="MutualWarm" required></label>
-      <label>{{ t("smtp_host") }}<input name="smtp_host" value="smtp.gmail.com"></label>
-      <label>{{ t("smtp_port") }}<input name="smtp_port" type="number" min="1" max="65535" value="587"></label>
-      <label>{{ t("imap_host") }}<input name="imap_host" value="imap.gmail.com"></label>
-      <label>{{ t("imap_port") }}<input name="imap_port" type="number" min="1" max="65535" value="993"></label>
       <label>{{ t("gmail_client_id") }}<input id="gmail-client-id-input" name="gmail_client_id" autocomplete="off"></label>
       <label>{{ t("gmail_client_secret") }}<input id="gmail-client-secret-input" name="gmail_client_secret" type="password" autocomplete="off"></label>
       <label class="checkbox-line md:col-span-4">
@@ -101,45 +84,16 @@
           <input id="gmail-oauth-link-input" value="{{ gmail_oauth_authorization_url }}" readonly onclick="this.select()">
         </label>
       {% endif %}
-      <button class="primary-button md:col-span-2" type="submit" data-progress-title="{{ t('progress_sender_check_title') }}" data-progress-text="{{ t('progress_sender_check_text') }}">
+      <button class="secondary-button md:col-span-2" type="submit" data-progress-title="{{ t('progress_sender_save_title') }}" data-progress-text="{{ t('progress_sender_save_text') }}">
         {{ t("save_sender") }}
       </button>
-      <button class="secondary-button md:col-span-2" type="submit" formaction="/gmail/oauth/start" formmethod="post" data-progress-title="{{ t('progress_gmail_oauth_title') }}" data-progress-text="{{ t('progress_gmail_oauth_text') }}">
+      <button class="primary-button md:col-span-2" type="submit" formaction="/gmail/oauth/start" formmethod="post" data-progress-title="{{ t('progress_gmail_oauth_title') }}" data-progress-text="{{ t('progress_gmail_oauth_text') }}">
         <span class="material-symbols-outlined">vpn_key</span>{{ t("connect_gmail_api") }}
       </button>
       <button class="secondary-button md:col-span-2" type="submit" name="oauth_action" value="copy" formaction="/gmail/oauth/start" formmethod="post" data-progress-title="{{ t('progress_gmail_oauth_title') }}" data-progress-text="{{ t('progress_gmail_oauth_text') }}">
         <span class="material-symbols-outlined">content_copy</span>{{ t("copy_gmail_oauth_link") }}
       </button>
     </form>
-
-    <form id="sender-import-form" class="form-grid mt-4" method="post" action="/senders/import" enctype="multipart/form-data" data-uploading-text="{{ t('sender_import_uploading') }}" data-checking-text="{{ t('sender_import_checking') }}">
-      <label class="md:col-span-2">{{ t("sender_import_file") }}<input name="senders_file" type="file" accept=".xlsx,.csv" required></label>
-      <label class="checkbox-line md:col-span-2"><input name="import_check_login" value="1" type="checkbox">{{ t("sender_import_check") }}</label>
-      <div class="callout md:col-span-3">
-        {{ t("sender_import_hint") }}
-        <a class="ml-2 font-bold" href="/senders/template">{{ t("sender_template") }}</a>
-      </div>
-      <button id="sender-import-submit" class="secondary-button" type="submit"><span class="material-symbols-outlined">upload_file</span>{{ t("import_senders") }}</button>
-      <div id="sender-import-progress" class="import-progress md:col-span-4" hidden>
-        <div class="import-progress-row">
-          <span id="sender-import-progress-text">{{ t("sender_import_uploading") }}</span>
-          <span class="import-spinner" aria-hidden="true"></span>
-        </div>
-        <div class="import-progress-track"><span></span></div>
-      </div>
-    </form>
-
-    <div class="callout mt-5">{{ t("sender_provider_hint") }}</div>
-    <div class="table-wrap mt-3">
-      <table>
-        <thead><tr><th>{{ t("provider") }}</th><th>Type</th><th>Host</th><th>Port</th><th>{{ t("email_security") }}</th></tr></thead>
-        <tbody>
-          {% for row in mail_provider_rows %}
-            <tr><td>{{ row.provider }}</td><td>{{ row.purpose }}</td><td>{{ row.host }}</td><td>{{ row.port }}</td><td>{{ row.security }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
   </section>
 
   <section class="llm-config-card">

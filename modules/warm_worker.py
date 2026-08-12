@@ -2,16 +2,12 @@ import asyncio
 import json
 import logging
 import random
-import smtplib
 import time
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
 from config import (
     MAIL_FROM_NAME,
-    MAILFORGE_SMTP_HOST,
-    MAILFORGE_SMTP_PORT,
-    SMTP_TIMEOUT_SECONDS,
     WARM_SEND_MAX_GAP_SECONDS,
     WARM_SEND_MIN_GAP_SECONDS,
     WARM_TASK_CLAIM_LIMIT,
@@ -30,7 +26,7 @@ from database.db_manager import (
     upsert_warm_local_task,
     upsert_warm_local_thread,
 )
-from modules.email_engine import normalize_email
+from modules.email_utils import normalize_email
 from modules.gmail_api import send_gmail_api_message
 from modules.safe_logging import mask_email, redact_sensitive
 from modules.warm_account_probe import scan_warm_account_probe
@@ -567,27 +563,14 @@ def _send_plain_message(sender_email, receiver_email, subject, body, headers=Non
             msg[name] = str(value).replace("\r", " ").replace("\n", " ").strip()
     msg.set_content(body)
 
-    if (sender.get("auth_method") or "") == "gmail_api":
-        send_gmail_api_message(
-            sender.get("gmail_client_id") or "",
-            sender.get("gmail_client_secret") or "",
-            sender.get("gmail_refresh_token") or "",
-            msg.as_bytes(),
-        )
-    else:
-        password = sender.get("password")
-        if not password:
-            raise RuntimeError("missing_smtp_password")
-        smtp_host = sender.get("smtp_host") or MAILFORGE_SMTP_HOST
-        smtp_port = int(sender.get("smtp_port") or MAILFORGE_SMTP_PORT)
-        smtp_cls = smtplib.SMTP_SSL if smtp_port == 465 else smtplib.SMTP
-        with smtp_cls(smtp_host, smtp_port, timeout=SMTP_TIMEOUT_SECONDS) as server:
-            server.ehlo()
-            if smtp_port != 465:
-                server.starttls()
-                server.ehlo()
-            server.login(sender_email, password)
-            server.send_message(msg)
+    if (sender.get("auth_method") or "") != "gmail_api":
+        raise RuntimeError("gmail_api_required")
+    send_gmail_api_message(
+        sender.get("gmail_client_id") or "",
+        sender.get("gmail_client_secret") or "",
+        sender.get("gmail_refresh_token") or "",
+        msg.as_bytes(),
+    )
     return {"sent": True, "message_id": msg["Message-ID"]}
 
 

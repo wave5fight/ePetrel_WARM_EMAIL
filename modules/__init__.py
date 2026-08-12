@@ -1,1 +1,1 @@
-"""Core modules for the ePetrel cold email system."""
+"""Core modules for the MutualWarm local client."""

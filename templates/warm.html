@@ -13,7 +13,7 @@
     {% if warm_auth and warm_auth.access_token %}
       <div class="alert alert-success">Logged in to ePetrel{% if warm_auth.user and warm_auth.user.email %} as {{ warm_auth.user.email }}{% elif warm_auth.email %} as {{ warm_auth.email }}{% endif %}. This client can register clusters, approve members, and receive scheduler policy.</div>
       <form method="post" action="/warm/auth/clear" onsubmit="return confirm('Clear local ePetrel Warm authorization on this client? Remote ownership bindings will not be deleted.')">
-        <button class="secondary-button audit-clear-button" type="submit">
+        <button class="secondary-button warm-danger-button" type="submit">
           <span class="material-symbols-outlined">logout</span>Clear Authorization
         </button>
       </form>
@@ -68,7 +68,7 @@
             <input name="member_emails" type="checkbox" value="{{ sender.email }}" {% if not sender.warm_selectable %}disabled{% endif %}>
             <span class="warm-sender-main">
               <strong>{{ sender.email }}</strong>
-              <em>{{ sender.auth_method or "smtp" }}</em>
+              <em>{{ sender.auth_method or "gmail_api" }}</em>
             </span>
             <span class="warm-sender-status">{{ sender.warm_status_label }}</span>
             <small>{{ sender.warm_status_message }}</small>
@@ -85,14 +85,14 @@
         <h3>Cluster State</h3>
         <form method="post" action="/warm/clusters/clear-local" onsubmit="return confirm('Clear this Warm cluster on this client? Owners dissolve the remote cluster; members leave the cluster. Local state will be cleared.')">
           <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id if selected_cluster else '' }}">
-          <button class="secondary-button audit-clear-button" type="submit">
+          <button class="secondary-button warm-danger-button" type="submit">
             <span class="material-symbols-outlined">delete_sweep</span>Clear
           </button>
         </form>
         <form method="post" action="/warm/clusters/clear-local" onsubmit="return confirm('Clear only local Warm cluster state on this client? Remote ePetrel clusters will not be changed.')">
           <input name="cluster_id" type="hidden" value="{{ selected_cluster.cluster_id if selected_cluster else '' }}">
           <input name="scope" type="hidden" value="local">
-          <button class="secondary-button audit-clear-button" type="submit">
+          <button class="secondary-button warm-danger-button" type="submit">
             <span class="material-symbols-outlined">folder_delete</span>Local Only
           </button>
         </form>
@@ -379,7 +379,7 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
 	            <input name="sender_emails" type="checkbox" value="{{ sender.email }}" {% if not sender.warm_selectable %}disabled{% endif %}>
 	            <span class="warm-sender-main">
 	              <strong>{{ sender.email }}</strong>
-	              <em>{{ sender.auth_method or "smtp" }}</em>
+	              <em>{{ sender.auth_method or "gmail_api" }}</em>
 	            </span>
 	            <span class="warm-sender-status">{{ sender.warm_status_label }}</span>
 	            <small>{{ sender.warm_status_message }}</small>
@@ -406,7 +406,7 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
     <div class="warm-operation-head">
       <h3>Local Warm Mailboxes</h3>
       <form method="post" action="/warm/mailboxes/clear-local" onsubmit="return confirm('Clear all local Warm mailbox records on this client? Remote ePetrel members will not be deleted.')">
-        <button class="secondary-button audit-clear-button" type="submit">
+        <button class="secondary-button warm-danger-button" type="submit">
           <span class="material-symbols-outlined">delete_sweep</span>Clear
         </button>
       </form>
@@ -573,8 +573,8 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
   </div>
 </section>
 </div>
-<div id="warm-working-toast" class="dispatch-working-toast" role="status" aria-live="polite" hidden>
-  <span class="dispatch-working-dot" aria-hidden="true"></span>
+<div id="warm-working-toast" class="warm-working-toast" role="status" aria-live="polite" hidden>
+  <span class="warm-working-dot" aria-hidden="true"></span>
   <div>
     <strong>Warm Network is working</strong>
     <span id="warm-working-toast-message">Preparing mailbox verification...</span>
@@ -627,7 +627,7 @@ Cluster Secret: {{ selected_cluster.cluster_secret }}"
       const submitter = event.submitter;
       const message = (submitter && submitter.getAttribute("data-warm-progress")) || form.getAttribute("data-warm-progress") || "Warm Network is working...";
       showWarmWorkingToast(message);
-      form.classList.add("dispatch-form-busy");
+      form.classList.add("warm-form-busy");
       Array.prototype.forEach.call(form.querySelectorAll("button"), (button) => {
         button.setAttribute("aria-busy", "true");
       });

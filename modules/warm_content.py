@@ -4,7 +4,7 @@ import random
 import re
 
 from database.db_manager import get_llm_settings, insert_warm_content_fingerprint, list_warm_content_fingerprints
-from modules.ai_agent import _llm_complete, _strip_response_wrappers
+from modules.llm_client import _llm_complete, _strip_response_wrappers
 
 
 WARM_CONTENT_STAGES = ("initial_send", "reply_1", "reply_2", "reply_3")
